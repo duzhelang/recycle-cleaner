@@ -43,6 +43,10 @@ installer/Output/RecycleCleaner_Setup.exe
 
 - [release/RecycleCleaner_Setup.exe](../release/RecycleCleaner_Setup.exe)
 
+仓库中也提供了压缩包下载：
+
+- [release/RecycleCleaner_Release.zip](../release/RecycleCleaner_Release.zip)
+
 ## 打包注意事项
 
 - 单文件模式体积较大属于正常现象
