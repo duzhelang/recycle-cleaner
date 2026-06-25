@@ -74,7 +74,8 @@ def upload_file(remote_path: str, local_path: Path):
 
 
 if __name__ == "__main__":
-    remote = "release/RecycleCleaner_Setup.exe"
-    local = ROOT / "installer" / "Output" / "RecycleCleaner_Setup.exe"
-    upload_file(remote, local)
-    print("UPLOADED|" + remote)
+    import sys
+    local_path = Path(sys.argv[1])
+    remote_path = sys.argv[2]
+    upload_file(remote_path, local_path)
+    print("UPLOADED|" + remote_path)

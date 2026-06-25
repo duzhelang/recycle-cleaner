@@ -64,6 +64,10 @@ RecycleCleaner.exe
 
 - [release/RecycleCleaner_Setup.exe](release/RecycleCleaner_Setup.exe)
 
+如果你更方便下载压缩包，也可以使用：
+
+- [release/RecycleCleaner_Release.zip](release/RecycleCleaner_Release.zip)
+
 下载后双击运行即可安装，安装包支持：
 
 - 安装到 Program Files
