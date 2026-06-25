@@ -37,4 +37,5 @@ exe = EXE(
     entitlements_file=None,
     version='D:\\SOLO\\回收站清理工具\\version_info.txt',
     uac_admin=True,
+    icon=['D:\\SOLO\\回收站清理工具\\assets\\logo.ico'],
 )
