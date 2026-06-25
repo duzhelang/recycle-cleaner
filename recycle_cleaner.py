@@ -1,25 +1,118 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import os
-import subprocess
-import shutil
 import re
+import csv
+import json
+import logging
+import os
+import platform
+import subprocess
 import sys
 import tempfile
+import threading
+import traceback
+import webbrowser
 from datetime import datetime
 from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from urllib.request import urlopen, Request
+
+from strings import STRINGS
 
 APP_NAME = "回收站清理工具"
 APP_VERSION = "1.0.0"
+APP_ID = "recycle-cleaner"
+GITHUB_REPO = "https://api.github.com/repos/user/recycle-cleaner/releases/latest"
+CONFIG_DIR = Path.home() / "RecycleCleaner"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+LOG_DIR = CONFIG_DIR / "logs"
+
+
+def _ensure_dirs():
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _load_config() -> dict:
+    try:
+        if CONFIG_FILE.exists():
+            return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _save_config(cfg: dict):
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _setup_logging() -> Path:
+    _ensure_dirs()
+    log_file = LOG_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler(str(log_file), encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+    logging.info("APP_NAME=%s APP_VERSION=%s", APP_NAME, APP_VERSION)
+    logging.info("Python=%s OS=%s", sys.version, platform.platform())
+    logging.info("Executable=%s", sys.executable)
+    return log_file
 
 
 def _resolve_packaged_resource(relative_path: str) -> Path | None:
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
     candidate = base / relative_path
     return candidate if candidate.exists() else None
+
+
+def _self_check() -> list[str]:
+    issues = []
+    try:
+        import tkinter as _tk
+        _root = _tk.Tk()
+        _root.withdraw()
+        _root.destroy()
+    except Exception as e:
+        issues.append(f"tkinter: {e}")
+    try:
+        tmp = tempfile.gettempdir()
+        test_f = os.path.join(tmp, f"_rc_test_{os.getpid()}.tmp")
+        with open(test_f, "w") as f:
+            f.write("test")
+        os.remove(test_f)
+    except Exception as e:
+        issues.append(f"tempdir: {e}")
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", "echo ok"],
+            capture_output=True, timeout=10
+        )
+        if r.returncode != 0:
+            issues.append("PowerShell: unavailable")
+    except Exception as e:
+        issues.append(f"PowerShell: {e}")
+    return issues
+
+
+def _run_self_check_ui(lang: str):
+    s = STRINGS[lang]
+    issues = _self_check()
+    if issues:
+        detail = "\n".join(f"- {i}" for i in issues)
+        return messagebox.askyesno(
+            s["selfcheck_title"],
+            s["selfcheck_detail"].format(detail=detail),
+        )
+    return True
 
 
 def format_size(size_bytes):
@@ -62,7 +155,6 @@ def parse_date_str(s):
         except ValueError:
             continue
     try:
-        from datetime import timedelta
         if '.' in s:
             d, t = s.split(' ', 1)
             parts = d.split('/')
@@ -72,35 +164,56 @@ def parse_date_str(s):
                 h, mi = int(tparts[0]), int(tparts[1])
                 s_val = int(tparts[2]) if len(tparts) > 2 else 0
                 return datetime(y, mon, day, h, mi, s_val)
-    except:
+    except Exception:
         pass
     return None
 
 
+def _check_update_async(lang: str, callback):
+    s = STRINGS[lang]
+    try:
+        req = Request(GITHUB_REPO, headers={"Accept": "application/vnd.github.v3+json", "User-Agent": APP_ID})
+        with urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        tag = data.get("tag_name", "").lstrip("v")
+        if tag and tag != APP_VERSION:
+            callback(tag)
+    except Exception:
+        logging.debug("Update check failed", exc_info=True)
 
 
 class RecycleCleaner:
     def __init__(self):
+        self.cfg = _load_config()
+        self.lang = self.cfg.get("lang", "zh")
+        self.log_file_path = _setup_logging()
+        self.scanned_items = []
+        self._last_targets = []
+
         self.root = tk.Tk()
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
-        self.root.geometry("620x560")
+        self.root.geometry("640x640")
         self.root.resizable(False, False)
 
         icon_path = _resolve_packaged_resource("assets/logo.ico")
         if icon_path is not None:
             self.root.iconbitmap(icon_path)
 
-        self._center_window(620, 560)
-
-        self.ext_var = tk.StringVar()
-        self.path_var = tk.StringVar()
-        self.folder_name_var = tk.StringVar()
-        self.date_from_var = tk.StringVar()
-        self.date_to_var = tk.StringVar()
-        self.scanned_items = []
-
+        self._center_window(640, 640)
         self._apply_style()
         self._build_ui()
+        self._rebuild_texts()
+
+        if not self.cfg.get("guide_shown"):
+            self.root.after(300, self._show_guide)
+
+        self.root.after(500, self._async_update_check)
+
+    def _t(self, key: str, **kwargs) -> str:
+        val = STRINGS.get(self.lang, STRINGS["zh"]).get(key, key)
+        if kwargs:
+            val = val.format(**kwargs)
+        return val
 
     def _center_window(self, w, h):
         sw = self.root.winfo_screenwidth()
@@ -120,48 +233,72 @@ class RecycleCleaner:
         main = ttk.Frame(self.root, padding=20)
         main.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(main, text="回收站清理工具", style="Title.TLabel").pack(anchor=tk.CENTER)
+        top_row = ttk.Frame(main)
+        top_row.pack(fill=tk.X)
+        self.title_label = ttk.Label(top_row, style="Title.TLabel")
+        self.title_label.pack(side=tk.LEFT, anchor=tk.CENTER)
+        self.lang_btn = ttk.Button(top_row, width=4, command=self._toggle_lang)
+        self.lang_btn.pack(side=tk.RIGHT)
+
         ttk.Separator(main, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(8, 12))
 
         self.notebook = ttk.Notebook(main)
         self.notebook.pack(fill=tk.X, pady=(0, 12))
 
         tab_ext = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(tab_ext, text="  按文件类型  ")
-        ttk.Label(tab_ext, text="输入扩展名，多个用空格或逗号分隔：").pack(anchor=tk.W)
-        ttk.Entry(tab_ext, textvariable=self.ext_var, width=70).pack(fill=tk.X, pady=(4, 4))
-        ttk.Label(tab_ext, text="示例:  .tmp  .log  .cache  .ps1  .pyc  .class", foreground="gray").pack(anchor=tk.W)
+        self.notebook.add(tab_ext, text="")
+        self.tab_ext_label = ttk.Label(tab_ext)
+        self.tab_ext_label.pack(anchor=tk.W)
+        self.ext_entry = ttk.Entry(tab_ext, width=70)
+        self.ext_entry.pack(fill=tk.X, pady=(4, 4))
+        self.ext_hint = ttk.Label(tab_ext, foreground="gray")
+        self.ext_hint.pack(anchor=tk.W)
 
         tab_path = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(tab_path, text="  按原始路径  ")
-        ttk.Label(tab_path, text="输入文件的原始父文件夹路径：").pack(anchor=tk.W)
+        self.notebook.add(tab_path, text="")
+        self.tab_path_label = ttk.Label(tab_path)
+        self.tab_path_label.pack(anchor=tk.W)
         path_row = ttk.Frame(tab_path)
         path_row.pack(fill=tk.X, pady=(4, 4))
-        ttk.Entry(path_row, textvariable=self.path_var, width=56).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(path_row, text="浏览…", command=self._browse).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Label(tab_path, text="示例:  C:\\Users\\xxx\\AppData\\Local\\Temp", foreground="gray").pack(anchor=tk.W)
+        self.path_entry = ttk.Entry(path_row, width=56)
+        self.path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.browse_btn = ttk.Button(path_row, command=self._browse)
+        self.browse_btn.pack(side=tk.LEFT, padx=(6, 0))
+        self.path_hint = ttk.Label(tab_path, foreground="gray")
+        self.path_hint.pack(anchor=tk.W)
 
         tab_folder = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(tab_folder, text="  按文件夹名  ")
-        ttk.Label(tab_folder, text="输入文件夹名，删除该文件夹下所有文件：").pack(anchor=tk.W)
-        ttk.Entry(tab_folder, textvariable=self.folder_name_var, width=70).pack(fill=tk.X, pady=(4, 4))
-        ttk.Label(tab_folder, text="示例:  json  则会匹配 F:\\a\\json\\1.txt 和 C:\\Projects\\json\\data.json", foreground="gray").pack(anchor=tk.W)
+        self.notebook.add(tab_folder, text="")
+        self.tab_folder_label = ttk.Label(tab_folder)
+        self.tab_folder_label.pack(anchor=tk.W)
+        self.folder_entry = ttk.Entry(tab_folder, width=70)
+        self.folder_entry.pack(fill=tk.X, pady=(4, 4))
+        self.folder_hint = ttk.Label(tab_folder, foreground="gray")
+        self.folder_hint.pack(anchor=tk.W)
 
         tab_date = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(tab_date, text="  按删除日期  ")
-        ttk.Label(tab_date, text="选择删除日期范围（留空表示不限）：").pack(anchor=tk.W)
+        self.notebook.add(tab_date, text="")
+        self.tab_date_label = ttk.Label(tab_date)
+        self.tab_date_label.pack(anchor=tk.W)
         date_row = ttk.Frame(tab_date)
         date_row.pack(fill=tk.X, pady=(6, 4))
-        ttk.Label(date_row, text="从:").pack(side=tk.LEFT)
-        ttk.Entry(date_row, textvariable=self.date_from_var, width=16).pack(side=tk.LEFT, padx=(4, 12))
-        ttk.Label(date_row, text="到:").pack(side=tk.LEFT)
-        ttk.Entry(date_row, textvariable=self.date_to_var, width=16).pack(side=tk.LEFT, padx=(4, 0))
-        ttk.Label(tab_date, text="格式: 2025-01-01  或  2025-01-01 12:30", foreground="gray").pack(anchor=tk.W, pady=(4, 0))
+        self.date_from_lbl = ttk.Label(date_row)
+        self.date_from_lbl.pack(side=tk.LEFT)
+        self.date_from_entry = ttk.Entry(date_row, width=16)
+        self.date_from_entry.pack(side=tk.LEFT, padx=(4, 12))
+        self.date_to_lbl = ttk.Label(date_row)
+        self.date_to_lbl.pack(side=tk.LEFT)
+        self.date_to_entry = ttk.Entry(date_row, width=16)
+        self.date_to_entry.pack(side=tk.LEFT, padx=(4, 0))
+        self.date_hint = ttk.Label(tab_date, foreground="gray")
+        self.date_hint.pack(anchor=tk.W, pady=(4, 0))
 
-        ttk.Button(main, text="开始清理", style="Run.TButton", command=self._run).pack(fill=tk.X, pady=(0, 10))
+        self.run_btn = ttk.Button(main, style="Run.TButton", command=self._run)
+        self.run_btn.pack(fill=tk.X, pady=(0, 10))
 
-        log_frame = ttk.LabelFrame(main, text="执行日志", padding=6, style="Section.TLabelframe")
+        log_frame = ttk.LabelFrame(main, padding=6, style="Section.TLabelframe")
         log_frame.pack(fill=tk.BOTH, expand=True)
+        self.log_frame = log_frame
         self.log_text = tk.Text(log_frame, height=10, state=tk.DISABLED, font=("Consolas", 9),
                                 wrap=tk.WORD, bg="#1e1e1e", fg="#d4d4d4", selectbackground="#264f78")
         scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
@@ -169,15 +306,56 @@ class RecycleCleaner:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
-        self.status_var = tk.StringVar(value="就绪")
-        ttk.Label(main, textvariable=self.status_var, foreground="gray").pack(anchor=tk.W, pady=(6, 0))
+        bottom_row = ttk.Frame(main)
+        bottom_row.pack(fill=tk.X, pady=(6, 0))
+        self.log_path_label = ttk.Label(bottom_row, foreground="gray")
+        self.log_path_label.pack(side=tk.LEFT)
+        self.export_btn = ttk.Button(bottom_row, command=self._export_csv)
+        self.export_btn.pack(side=tk.RIGHT)
+
+        self.status_var = tk.StringVar(value="")
+        ttk.Label(main, textvariable=self.status_var, foreground="gray").pack(anchor=tk.W, pady=(4, 0))
+
+    def _rebuild_texts(self):
+        s = STRINGS[self.lang]
+        self.root.title(f"{s['app_title']} v{APP_VERSION}")
+        self.title_label.config(text=s["app_title"])
+        self.lang_btn.config(text=s["lang_switch"])
+        self.notebook.tab(0, text=s["by_ext"])
+        self.notebook.tab(1, text=s["by_path"])
+        self.notebook.tab(2, text=s["by_folder"])
+        self.notebook.tab(3, text=s["by_date"])
+        self.tab_ext_label.config(text=s["ext_label"])
+        self.ext_hint.config(text=s["ext_hint"])
+        self.tab_path_label.config(text=s["path_label"])
+        self.browse_btn.config(text=s["browse"])
+        self.path_hint.config(text=s["path_hint"])
+        self.tab_folder_label.config(text=s["folder_label"])
+        self.folder_hint.config(text=s["folder_hint"])
+        self.tab_date_label.config(text=s["date_label"])
+        self.date_from_lbl.config(text=s["from"])
+        self.date_to_lbl.config(text=s["to"])
+        self.date_hint.config(text=s["date_hint"])
+        self.run_btn.config(text=s["start_clean"])
+        self.log_frame.config(text=s["exec_log"])
+        self.log_path_label.config(text=f"{s['log_path']}{self.log_file_path}")
+        self.export_btn.config(text=s["export_csv"])
+        self.status_var.set(s["ready"])
+
+    def _toggle_lang(self):
+        self.lang = "en" if self.lang == "zh" else "zh"
+        self.cfg["lang"] = self.lang
+        _save_config(self.cfg)
+        self._rebuild_texts()
 
     def _browse(self):
-        d = filedialog.askdirectory(title="选择原始文件夹路径")
+        d = filedialog.askdirectory(title="选择路径" if self.lang == "zh" else "Select path")
         if d:
-            self.path_var.set(d)
+            self.path_entry.delete(0, tk.END)
+            self.path_entry.insert(0, d)
 
     def _log(self, msg):
+        logging.info(msg)
         self.log_text.config(state=tk.NORMAL)
         self.log_text.insert(tk.END, msg + "\n")
         self.log_text.see(tk.END)
@@ -189,8 +367,81 @@ class RecycleCleaner:
         self.log_text.delete("1.0", tk.END)
         self.log_text.config(state=tk.DISABLED)
 
+    def _show_guide(self):
+        s = STRINGS[self.lang]
+        dlg = tk.Toplevel(self.root)
+        dlg.title(s["guide_title"])
+        dlg.geometry("460x380")
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        self._center_child(dlg, 460, 380)
+
+        text = tk.Text(dlg, wrap=tk.WORD, font=("Microsoft YaHei UI", 10), padx=16, pady=16, relief=tk.FLAT)
+        text.insert(tk.END, s["guide_text"])
+        text.config(state=tk.DISABLED)
+        text.pack(fill=tk.BOTH, expand=True, padx=8, pady=(8, 0))
+
+        var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(dlg, text=s["guide_confirm"], variable=var).pack(anchor=tk.W, padx=16, pady=4)
+        ttk.Button(dlg, text=s["guide_ok"], command=lambda: self._close_guide(dlg, var)).pack(pady=(4, 12))
+
+    def _close_guide(self, dlg, var):
+        if var.get():
+            self.cfg["guide_shown"] = True
+            _save_config(self.cfg)
+        dlg.destroy()
+
+    def _center_child(self, win, w, h):
+        px = self.root.winfo_x()
+        py = self.root.winfo_y()
+        pw = self.root.winfo_width()
+        ph = self.root.winfo_height()
+        x = px + (pw - w) // 2
+        y = py + (ph - h) // 2
+        win.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _async_update_check(self):
+        threading.Thread(target=_check_update_async, args=(self.lang, self._on_update_found), daemon=True).start()
+
+    def _on_update_found(self, new_ver):
+        s = STRINGS[self.lang]
+        self.root.after(0, lambda: self._show_update_dialog(new_ver, s))
+
+    def _show_update_dialog(self, new_ver, s):
+        if messagebox.askyesno(s["update_title"], s["update_msg"].format(cur=APP_VERSION, new=new_ver)):
+            webbrowser.open(f"https://github.com/user/recycle-cleaner/releases/tag/v{new_ver}")
+
+    def _show_error(self, exc: Exception):
+        s = STRINGS[self.lang]
+        err_text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logging.error(err_text)
+        dlg = tk.Toplevel(self.root)
+        dlg.title(s["err_title"])
+        dlg.geometry("500x300")
+        dlg.transient(self.root)
+        dlg.grab_set()
+        self._center_child(dlg, 500, 300)
+
+        ttk.Label(dlg, text=s["err_msg"].format(err=str(exc)[:200]), wraplength=460, justify=tk.LEFT).pack(padx=16, pady=(12, 6), anchor=tk.W)
+
+        t = tk.Text(dlg, wrap=tk.WORD, font=("Consolas", 9), height=8)
+        t.insert(tk.END, err_text)
+        t.config(state=tk.DISABLED)
+        t.pack(fill=tk.BOTH, expand=True, padx=16, pady=4)
+
+        btn_row = ttk.Frame(dlg)
+        btn_row.pack(fill=tk.X, padx=16, pady=(4, 12))
+        ttk.Button(btn_row, text=s["err_copy"], command=lambda: self._copy_text(err_text)).pack(side=tk.LEFT)
+        ttk.Button(btn_row, text=s["close"], command=dlg.destroy).pack(side=tk.RIGHT)
+
+    def _copy_text(self, text):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+
     def _scan_recycle_bin(self):
-        self._log("正在通过 Shell API 扫描回收站...")
+        s = STRINGS[self.lang]
+        self._log(s["scanning"].rstrip("."))
         self.root.update_idletasks()
         try:
             ps_script = '''$Encoding = [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -223,25 +474,22 @@ foreach ($item in $items) {
             )
             if result.returncode != 0:
                 err = result.stderr.decode('utf-8', errors='replace')[:200]
-                self._log(f"[错误] PowerShell 执行失败: {err}")
+                self._log(s["scan_err_ps"] + err)
                 return False
 
             raw = result.stdout.decode('utf-8', errors='replace').strip()
             if not raw:
-                self._log("[错误] 回收站扫描结果为空")
+                self._log(s["scan_err_empty"])
                 return False
 
             self.scanned_items = []
             errors = 0
-            total = 0
             for line in raw.split('\n'):
                 line = line.strip()
                 if not line:
                     continue
                 if not line.startswith('PSVB1|'):
-                    total += 1
                     continue
-                total += 1
                 parts = line.split('|', 5)
                 if len(parts) < 6:
                     errors += 1
@@ -249,29 +497,30 @@ foreach ($item in $items) {
                 n = parts[1]
                 l = parts[2]
                 d = parts[3]
-                s = parts[4]
+                sz = parts[4]
                 p = parts[5]
 
                 orig_path = os.path.join(l, n) if l and n else None
-                file_size = parse_size_str(s)
+                file_size = parse_size_str(sz)
                 delete_time = parse_date_str(d)
 
                 self.scanned_items.append((p, orig_path, file_size, delete_time, n))
 
-            self._log(f"扫描完成，共 {len(self.scanned_items)} 个项目")
+            self._log(s["scan_done"].format(n=len(self.scanned_items)))
             if errors:
-                self._log(f"[提示] {errors} 个条目格式异常已跳过")
+                self._log(s["scan_skip"].format(n=errors))
             return True
 
         except subprocess.TimeoutExpired:
-            self._log("[错误] 扫描超时（超过60秒）")
+            self._log(s["scan_timeout"])
             return False
         except Exception as e:
-            self._log(f"[错误] 扫描异常: {e}")
+            self._log(s["scan_exception"] + str(e))
+            logging.error("Scan exception", exc_info=True)
             return False
 
     def _parse_extensions(self, raw):
-        separators = [',', ' ', '，', ';', '；', '\n']
+        separators = [',', ' ', '\uff0c', ';', '\uff1b', '\n']
         tokens = [raw]
         for sep in separators:
             new_tokens = []
@@ -300,12 +549,19 @@ foreach ($item in $items) {
         return 'invalid'
 
     def _run(self):
+        try:
+            self._do_run()
+        except Exception as e:
+            self._show_error(e)
+
+    def _do_run(self):
+        s = STRINGS[self.lang]
         self._clear_log()
-        self.status_var.set("扫描中...")
+        self.status_var.set(s["scanning"])
         self.root.update_idletasks()
 
         if not self._scan_recycle_bin():
-            self.status_var.set("扫描失败")
+            self.status_var.set(s["scan_failed"])
             return
 
         tab_idx = self.notebook.index("current")
@@ -318,44 +574,61 @@ foreach ($item in $items) {
         else:
             self._clean_by_date()
 
-    def _do_delete(self, targets):
-        if not targets:
-            self._log("没有匹配的文件需要清理。")
-            self.status_var.set("就绪")
-            return
-
+    def _show_preview(self, targets) -> bool:
+        s = STRINGS[self.lang]
+        self._last_targets = targets
         total_size = sum(t[2] for t in targets)
-        self._log(f"\n找到 {len(targets)} 个匹配文件，共 {format_size(total_size)}")
-        self._log("-" * 50)
+        sample_lines = []
+        for t in targets[:5]:
+            display = t[1] if t[1] else t[4]
+            sample_lines.append(f"  - {display} ({format_size(t[2])})")
+        if len(targets) > 5:
+            sample_lines.append(f"  ...")
+        samples = "\n".join(sample_lines)
+        msg = s["preview_msg"].format(n=len(targets), sz=format_size(total_size), samples=samples)
+        return messagebox.askyesno(s["preview_title"], msg)
 
-        if not messagebox.askyesno("确认删除", f"即将删除 {len(targets)} 个文件，释放 {format_size(total_size)} 空间。\n\n确认继续？"):
-            self._log("用户取消操作。")
-            self.status_var.set("已取消")
+    def _do_delete(self, targets):
+        s = STRINGS[self.lang]
+        if not targets:
+            self._log(s["no_match"])
+            self.status_var.set(s["ready"])
             return
 
-        self.status_var.set("清理中...")
+        if not self._show_preview(targets):
+            self._log(s["user_cancel"])
+            self.status_var.set(s["cancelled"])
+            return
+
+        self.status_var.set(s["cleaning"])
         self.root.update_idletasks()
 
-        ps_lines = ['$ErrorActionPreference = "SilentlyContinue"']
-        for r_path, orig_path, size, _, name in targets:
-            r_dir = os.path.dirname(r_path)
-            r_name = os.path.basename(r_path)
-            i_path = os.path.join(r_dir, '$I' + r_name[2:])
-            ep = r_path.replace("'", "''")
-            ei = i_path.replace("'", "''")
-            ps_lines.append(f"Remove-Item -LiteralPath '{ep}' -Force -Recurse -ErrorAction SilentlyContinue")
-            ps_lines.append(f"Remove-Item -LiteralPath '{ei}' -Force -ErrorAction SilentlyContinue")
+        try:
+            ps_lines = ['$ErrorActionPreference = "SilentlyContinue"']
+            for r_path, orig_path, size, _, name in targets:
+                r_dir = os.path.dirname(r_path)
+                r_name = os.path.basename(r_path)
+                i_path = os.path.join(r_dir, '$I' + r_name[2:])
+                ep = r_path.replace("'", "''")
+                ei = i_path.replace("'", "''")
+                ps_lines.append(f"Remove-Item -LiteralPath '{ep}' -Force -Recurse -ErrorAction SilentlyContinue")
+                ps_lines.append(f"Remove-Item -LiteralPath '{ei}' -Force -ErrorAction SilentlyContinue")
 
-        ps_lines.append("Write-Host 'DONE'")
-        ps_script = '\n'.join(ps_lines)
-        ps_file = os.path.join(tempfile.gettempdir(), 'delete_rb.ps1')
-        with open(ps_file, 'wb') as f:
-            f.write(ps_script.encode('utf-8-sig'))
+            ps_lines.append("Write-Host 'DONE'")
+            ps_script = '\n'.join(ps_lines)
+            ps_file = os.path.join(tempfile.gettempdir(), 'delete_rb.ps1')
+            with open(ps_file, 'wb') as f:
+                f.write(ps_script.encode('utf-8-sig'))
 
-        subprocess.run(
-            ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps_file],
-            capture_output=True, timeout=120
-        )
+            subprocess.run(
+                ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps_file],
+                capture_output=True, timeout=120
+            )
+        except Exception as e:
+            self._log(s["scan_exception"] + str(e))
+            logging.error("Delete exception", exc_info=True)
+            self._show_error(e)
+            return
 
         deleted, failed, freed = 0, 0, 0
         for r_path, orig_path, size, _, name in targets:
@@ -368,34 +641,35 @@ foreach ($item in $items) {
             if os.path.exists(i_path):
                 try:
                     os.remove(i_path)
-                except:
+                except Exception:
                     pass
             display = orig_path if orig_path else name
-            self._log(f"  删除: {display} ({format_size(size)})")
+            self._log(s["delete_item"] + f"{display} ({format_size(size)})")
 
         self._log("")
         self._log("=" * 50)
-        self._log(f"清理完成!")
-        self._log(f"  删除: {deleted} 个")
-        self._log(f"  释放: {format_size(freed)}")
+        self._log(s["clean_done"])
+        self._log(s["deleted"] + str(deleted))
+        self._log(s["freed"] + format_size(freed))
         if failed:
-            self._log(f"  失败: {failed} 个（可能被占用）")
+            self._log(s["failed"] + str(failed) + s["failed_reason"])
         self._log("=" * 50)
-        self.status_var.set(f"完成 — 删除 {deleted} 个，释放 {format_size(freed)}")
+        self.status_var.set(s["done_status"].format(n=deleted, sz=format_size(freed)))
 
     def _clean_by_ext(self):
-        raw = self.ext_var.get().strip()
+        s = STRINGS[self.lang]
+        raw = self.ext_entry.get().strip()
         if not raw:
-            messagebox.showwarning("提示", "请输入至少一个文件扩展名")
-            self.status_var.set("就绪")
+            messagebox.showwarning(s["selfcheck_title"], s["prompt_ext"])
+            self.status_var.set(s["ready"])
             return
         extensions = self._parse_extensions(raw)
         if not extensions:
-            messagebox.showwarning("提示", "扩展名格式不正确")
-            self.status_var.set("就绪")
+            messagebox.showwarning(s["selfcheck_title"], s["prompt_ext_fmt"])
+            self.status_var.set(s["ready"])
             return
-        self._log(f"清理模式: 按文件类型")
-        self._log(f"目标扩展名: {', '.join(sorted(extensions))}")
+        self._log(s["mode_ext"])
+        self._log(s["target_ext"] + ", ".join(sorted(extensions)))
         targets = []
         for r_path, orig_path, size, delete_time, name in self.scanned_items:
             target = orig_path if orig_path else name
@@ -405,14 +679,15 @@ foreach ($item in $items) {
         self._do_delete(targets)
 
     def _clean_by_path(self):
-        folder = self.path_var.get().strip()
+        s = STRINGS[self.lang]
+        folder = self.path_entry.get().strip()
         if not folder:
-            messagebox.showwarning("提示", "请输入原始文件夹路径")
-            self.status_var.set("就绪")
+            messagebox.showwarning(s["selfcheck_title"], s["prompt_path"])
+            self.status_var.set(s["ready"])
             return
         folder_lower = folder.lower().rstrip('\\').rstrip('/')
-        self._log(f"清理模式: 按原始路径")
-        self._log(f"目标路径: {folder}")
+        self._log(s["mode_path"])
+        self._log(s["target_path"] + folder)
         targets = []
         for r_path, orig_path, size, delete_time, name in self.scanned_items:
             if orig_path and orig_path.lower().rstrip('\\').rstrip('/').startswith(folder_lower):
@@ -420,13 +695,14 @@ foreach ($item in $items) {
         self._do_delete(targets)
 
     def _clean_by_folder_name(self):
-        folder_name = self.folder_name_var.get().strip().lower()
+        s = STRINGS[self.lang]
+        folder_name = self.folder_entry.get().strip().lower()
         if not folder_name:
-            messagebox.showwarning("提示", "请输入文件夹名称")
-            self.status_var.set("就绪")
+            messagebox.showwarning(s["selfcheck_title"], s["prompt_folder"])
+            self.status_var.set(s["ready"])
             return
-        self._log(f"清理模式: 按文件夹名")
-        self._log(f"目标文件夹: {folder_name}")
+        self._log(s["mode_folder"])
+        self._log(s["target_folder"] + folder_name)
         targets = []
         for r_path, orig_path, size, delete_time, name in self.scanned_items:
             if not orig_path:
@@ -435,40 +711,41 @@ foreach ($item in $items) {
             if folder_name in parts:
                 targets.append((r_path, orig_path, size, delete_time, name))
         if not targets:
-            self._log(f"没有找到路径中包含文件夹 [{folder_name}] 的文件")
+            self._log(s["no_folder_match"].format(name=folder_name))
         self._do_delete(targets)
 
     def _clean_by_date(self):
-        from_str = self.date_from_var.get()
-        to_str = self.date_to_var.get()
+        s = STRINGS[self.lang]
+        from_str = self.date_from_entry.get()
+        to_str = self.date_to_entry.get()
 
         date_from = self._parse_date(from_str)
         if date_from == 'invalid':
-            messagebox.showwarning("提示", "起始日期格式不正确，请使用 YYYY-MM-DD")
-            self.status_var.set("就绪")
+            messagebox.showwarning(s["selfcheck_title"], s["prompt_date_fmt_s"])
+            self.status_var.set(s["ready"])
             return
 
         date_to = self._parse_date(to_str)
         if date_to == 'invalid':
-            messagebox.showwarning("提示", "结束日期格式不正确，请使用 YYYY-MM-DD")
-            self.status_var.set("就绪")
+            messagebox.showwarning(s["selfcheck_title"], s["prompt_date_fmt_e"])
+            self.status_var.set(s["ready"])
             return
 
         if date_to and date_to.hour == 0 and date_to.minute == 0:
             date_to = date_to.replace(hour=23, minute=59, second=59)
 
         if not date_from and not date_to:
-            messagebox.showwarning("提示", "请至少输入一个日期")
-            self.status_var.set("就绪")
+            messagebox.showwarning(s["selfcheck_title"], s["prompt_date_at_least"])
+            self.status_var.set(s["ready"])
             return
 
-        self._log(f"清理模式: 按删除日期")
+        self._log(s["mode_date"])
         if date_from and date_to:
-            self._log(f"日期范围: {date_from.strftime('%Y-%m-%d %H:%M')} ~ {date_to.strftime('%Y-%m-%d %H:%M')}")
+            self._log(s["date_range"] + f"{date_from.strftime('%Y-%m-%d %H:%M')} ~ {date_to.strftime('%Y-%m-%d %H:%M')}")
         elif date_from:
-            self._log(f"删除日期 >= {date_from.strftime('%Y-%m-%d %H:%M')}")
+            self._log(s["date_from_only"] + date_from.strftime('%Y-%m-%d %H:%M'))
         else:
-            self._log(f"删除日期 <= {date_to.strftime('%Y-%m-%d %H:%M')}")
+            self._log(s["date_to_only"] + date_to.strftime('%Y-%m-%d %H:%M'))
 
         targets = []
         skipped = 0
@@ -483,13 +760,80 @@ foreach ($item in $items) {
             targets.append((r_path, orig_path, size, delete_time, name))
 
         if skipped > 0:
-            self._log(f"（{skipped} 个无删除日期信息的项目已跳过）")
+            self._log(s["skipped_no_date"].format(n=skipped))
         self._do_delete(targets)
 
+    def _export_csv(self):
+        s = STRINGS[self.lang]
+        items = self.scanned_items
+        if not items and self._last_targets:
+            items = self._last_targets
+        if not items:
+            messagebox.showinfo(s["export_title"], s["export_empty"])
+            return
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv")],
+            title=s["export_title"],
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.writer(f)
+                writer.writerow(["Name", "Original Path", "Size", "Size Bytes", "Delete Time", "Recycle Path"])
+                for item in items:
+                    r_path, orig_path, size, delete_time, name = item
+                    writer.writerow([
+                        name,
+                        orig_path or "",
+                        format_size(size),
+                        size,
+                        delete_time.strftime("%Y-%m-%d %H:%M:%S") if delete_time else "",
+                        r_path,
+                    ])
+            logging.info("CSV exported to %s", path)
+            messagebox.showinfo(s["export_title"], s["export_success"].format(path=path))
+        except Exception as e:
+            self._show_error(e)
+
     def run(self):
+        if not _run_self_check_ui(self.lang):
+            return
         self.root.mainloop()
 
 
+def _run_uninstall_cleanup() -> None:
+    import shutil
+    cleanup_targets = []
+    local_app = Path(os.environ.get("LOCALAPPDATA", "")) / "RecycleCleaner"
+    if local_app.exists():
+        cleanup_targets.append(local_app)
+    app_data = Path(os.environ.get("APPDATA", "")) / "RecycleCleaner"
+    if app_data.exists():
+        cleanup_targets.append(app_data)
+    home_cfg = Path.home() / "RecycleCleaner"
+    if home_cfg.exists():
+        cleanup_targets.append(home_cfg)
+    exe_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else ROOT
+    for pattern in ["*.log", "*.tmp"]:
+        for item in exe_dir.glob(pattern):
+            cleanup_targets.append(item)
+    for target in cleanup_targets:
+        try:
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            elif target.is_file():
+                target.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 if __name__ == '__main__':
-    app = RecycleCleaner()
-    app.run()
+    if "--uninstall-cleanup" in sys.argv:
+        _run_uninstall_cleanup()
+    else:
+        app = RecycleCleaner()
+        app.run()
