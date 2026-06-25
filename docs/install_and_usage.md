@@ -67,6 +67,14 @@ installer/Output/RecycleCleaner_Setup.exe
 - 卸载入口
 - 安装许可协议页
 
+## 3.3 直接下载安装包
+
+如果你不想本地构建，可以直接下载仓库中已提供的安装包：
+
+- [release/RecycleCleaner_Setup.exe](../release/RecycleCleaner_Setup.exe)
+
+下载后双击运行，按向导完成安装即可。
+
 ## 4. 使用步骤
 
 1. 打开工具

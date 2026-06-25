@@ -39,6 +39,10 @@ build_installer_offline.bat
 installer/Output/RecycleCleaner_Setup.exe
 ```
 
+仓库中已提供可直接下载的安装包：
+
+- [release/RecycleCleaner_Setup.exe](../release/RecycleCleaner_Setup.exe)
+
 ## 打包注意事项
 
 - 单文件模式体积较大属于正常现象
