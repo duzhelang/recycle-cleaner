@@ -211,7 +211,7 @@ class RecycleCleaner:
 
         self.root = tk.Tk()
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
-        self.root.geometry("700x720")
+        self.root.geometry("700x750")
         self.root.resizable(False, False)
         self.root.configure(bg=self.BG)
 
@@ -219,7 +219,7 @@ class RecycleCleaner:
         if icon_path is not None:
             self.root.iconbitmap(icon_path)
 
-        self._center_window(700, 720)
+        self._center_window(700, 750)
         self._apply_style()
         self._build_ui()
         self._rebuild_texts()
@@ -377,7 +377,7 @@ class RecycleCleaner:
         log_container = tk.Frame(body, bg=self.BORDER, padx=1, pady=1)
         log_container.pack(fill=tk.BOTH, expand=True)
 
-        log_header = tk.Frame(log_container, bg=self.CARD_BG, padx=12, pady=(10, 6))
+        log_header = tk.Frame(log_container, bg=self.CARD_BG, padx=12, pady=10)
         log_header.pack(fill=tk.X)
         self.log_frame_label = ttk.Label(log_header, style="Card.TLabelframe.Label",
                                           background=self.CARD_BG)
@@ -396,7 +396,7 @@ class RecycleCleaner:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
-        footer = tk.Frame(body, bg=self.BG, pady=(8, 0))
+        footer = tk.Frame(body, bg=self.BG, pady=8)
         footer.pack(fill=tk.X)
         self.log_path_label = ttk.Label(footer, style="Status.TLabel")
         self.log_path_label.pack(side=tk.LEFT, anchor=tk.CENTER)
@@ -531,7 +531,7 @@ class RecycleCleaner:
         dlg.configure(bg=self.BG)
         self._center_child(dlg, 520, 320)
 
-        header = tk.Frame(dlg, bg=self.CARD_BG, padx=20, pady=(16, 8))
+        header = tk.Frame(dlg, bg=self.CARD_BG, padx=20, pady=16)
         header.pack(fill=tk.X, padx=16, pady=(16, 0))
         ttk.Label(header, text=s["err_msg"].format(err=str(exc)[:200]), wraplength=470, justify=tk.LEFT,
                    background=self.CARD_BG, foreground=self.DANGER, font=("Microsoft YaHei UI", 9)).pack(anchor=tk.W)
@@ -542,7 +542,7 @@ class RecycleCleaner:
         t.config(state=tk.DISABLED)
         t.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 8))
 
-        btn_row = tk.Frame(dlg, bg=self.BG, padx=16, pady=(0, 16))
+        btn_row = tk.Frame(dlg, bg=self.BG, padx=16, pady=16)
         btn_row.pack(fill=tk.X)
         ttk.Button(btn_row, text=s["err_copy"], command=lambda: self._copy_text(err_text),
                     style="Secondary.TButton").pack(side=tk.LEFT)
