@@ -22,7 +22,7 @@ from urllib.request import urlopen, Request
 from strings import STRINGS
 
 APP_NAME = "回收站清理工具"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 APP_ID = "recycle-cleaner"
 GITHUB_REPO = "https://api.github.com/repos/user/recycle-cleaner/releases/latest"
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
@@ -95,7 +95,8 @@ def _self_check() -> list[str]:
     try:
         r = subprocess.run(
             ["powershell", "-NoProfile", "-Command", "echo ok"],
-            capture_output=True, timeout=10
+            capture_output=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW
         )
         if r.returncode != 0:
             issues.append("PowerShell: unavailable")
@@ -399,6 +400,8 @@ class RecycleCleaner:
         footer.pack(fill=tk.X)
         self.log_path_label = ttk.Label(footer, style="Status.TLabel")
         self.log_path_label.pack(side=tk.LEFT, anchor=tk.CENTER)
+        self.open_log_btn = ttk.Button(footer, command=self._open_log_dir, style="Small.TButton")
+        self.open_log_btn.pack(side=tk.RIGHT, padx=(4, 0))
         self.export_btn = ttk.Button(footer, command=self._export_csv, style="Small.TButton")
         self.export_btn.pack(side=tk.RIGHT)
 
@@ -433,6 +436,7 @@ class RecycleCleaner:
         self.log_frame_label.config(text=s["exec_log"])
         self.log_path_label.config(text=f"{s['log_path']}{self.log_file_path}")
         self.export_btn.config(text=s["export_csv"])
+        self.open_log_btn.config(text=s["open_log_dir"])
         self.status_var.set(s["ready"])
 
     def _toggle_lang(self):
@@ -580,7 +584,8 @@ foreach ($item in $items) {
 
             result = subprocess.run(
                 ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps_file],
-                capture_output=True, timeout=60
+                capture_output=True, timeout=60,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
             if result.returncode != 0:
                 err = result.stderr.decode('utf-8', errors='replace')[:200]
@@ -732,7 +737,8 @@ foreach ($item in $items) {
 
             subprocess.run(
                 ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps_file],
-                capture_output=True, timeout=120
+                capture_output=True, timeout=120,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
         except Exception as e:
             self._log(s["scan_exception"] + str(e))
@@ -872,6 +878,12 @@ foreach ($item in $items) {
         if skipped > 0:
             self._log(s["skipped_no_date"].format(n=skipped))
         self._do_delete(targets)
+
+    def _open_log_dir(self):
+        if LOG_DIR.exists():
+            os.startfile(str(LOG_DIR))
+        else:
+            messagebox.showinfo("", str(LOG_DIR))
 
     def _export_csv(self):
         s = STRINGS[self.lang]
