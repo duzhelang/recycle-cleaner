@@ -80,7 +80,7 @@
 ### 日志路径查看
 
 支持查看运行日志文件位置：
-- 日志文件路径：`%APPDATA%\RecycleCleaner\logs\`
+- 日志文件路径：`<程序安装目录>\data\logs\`
 - 日志格式：`recycle_cleaner_YYYY-MM-DD.log`
 - 包含操作记录、错误信息、清理统计
 
@@ -248,7 +248,7 @@ build_optimized.bat
 ### 如何查看日志文件？
 
 日志文件存储位置：
-- 路径：`%APPDATA%\RecycleCleaner\logs\`
+- 路径：`<程序安装目录>\data\logs\`
 - 文件名格式：`recycle_cleaner_YYYY-MM-DD.log`
 - 包含每次清理操作的详细记录
 

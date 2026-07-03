@@ -198,16 +198,15 @@ python release.py
 
 卸载时自动清理以下位置的应用配置和临时文件：
 
-- `%LOCALAPPDATA%\RecycleCleaner`
-- `%APPDATA%\RecycleCleaner`
-- `%USERPROFILE%\RecycleCleaner`
+- 安装目录下的 `data\` 子目录（日志和配置）
+- 旧版遗留：`%LOCALAPPDATA%\RecycleCleaner`、`%APPDATA%\RecycleCleaner`、`%USERPROFILE%\RecycleCleaner`
 - 安装目录下的 `*.log` 和 `*.tmp` 文件
 
 ## 文件位置说明
 
 ### 日志文件
 
-- 路径：`%APPDATA%\RecycleCleaner\logs\`
+- 路径：`<程序安装目录>\data\logs\`
 - 文件名格式：`recycle_cleaner_YYYY-MM-DD.log`
 - 内容：每次清理操作的详细记录
 
@@ -219,8 +218,8 @@ python release.py
 
 ### 配置文件
 
-- 路径：`%APPDATA%\RecycleCleaner\config\`
-- 文件名：`settings.json`
+- 路径：`<程序安装目录>\data\`
+- 文件名：`config.json`
 - 内容：用户设置和语言偏好
 
 ## 后续优化方向

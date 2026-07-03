@@ -25,7 +25,8 @@ APP_NAME = "回收站清理工具"
 APP_VERSION = "1.0.0"
 APP_ID = "recycle-cleaner"
 GITHUB_REPO = "https://api.github.com/repos/user/recycle-cleaner/releases/latest"
-CONFIG_DIR = Path.home() / "RecycleCleaner"
+APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+CONFIG_DIR = APP_DIR / "data"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 LOG_DIR = CONFIG_DIR / "logs"
 
@@ -183,6 +184,23 @@ def _check_update_async(lang: str, callback):
 
 
 class RecycleCleaner:
+    BG = "#f7f8fa"
+    CARD_BG = "#ffffff"
+    ACCENT = "#4f6ef7"
+    ACCENT_HOVER = "#3b5bdb"
+    ACCENT_PRESS = "#2f4ec7"
+    TEXT_PRIMARY = "#1a1d23"
+    TEXT_SECONDARY = "#6b7280"
+    BORDER = "#e2e5ea"
+    LOG_BG = "#1b1f27"
+    LOG_FG = "#d1d5db"
+    LOG_SELECT = "#3b5bdb"
+    SUCCESS = "#10b981"
+    WARNING = "#f59e0b"
+    DANGER = "#ef4444"
+    TAB_BG = "#edf0f5"
+    TAB_ACTIVE_BG = "#ffffff"
+
     def __init__(self):
         self.cfg = _load_config()
         self.lang = self.cfg.get("lang", "zh")
@@ -192,14 +210,15 @@ class RecycleCleaner:
 
         self.root = tk.Tk()
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
-        self.root.geometry("640x640")
+        self.root.geometry("700x720")
         self.root.resizable(False, False)
+        self.root.configure(bg=self.BG)
 
         icon_path = _resolve_packaged_resource("assets/logo.ico")
         if icon_path is not None:
             self.root.iconbitmap(icon_path)
 
-        self._center_window(640, 640)
+        self._center_window(700, 720)
         self._apply_style()
         self._build_ui()
         self._rebuild_texts()
@@ -225,106 +244,180 @@ class RecycleCleaner:
     def _apply_style(self):
         style = ttk.Style()
         style.theme_use("clam")
-        style.configure("Title.TLabel", font=("Microsoft YaHei UI", 13, "bold"))
-        style.configure("Section.TLabelframe.Label", font=("Microsoft YaHei UI", 10, "bold"))
-        style.configure("Run.TButton", font=("Microsoft YaHei UI", 11, "bold"), padding=8)
+
+        style.configure(".", background=self.BG, foreground=self.TEXT_PRIMARY, font=("Microsoft YaHei UI", 9))
+
+        style.configure("Card.TFrame", background=self.CARD_BG)
+        style.configure("Card.TLabelframe", background=self.CARD_BG, borderwidth=1, relief="solid",
+                         bordercolor=self.BORDER, padding=16)
+        style.configure("Card.TLabelframe.Label", background=self.CARD_BG, foreground=self.TEXT_PRIMARY,
+                         font=("Microsoft YaHei UI", 10, "bold"))
+
+        style.configure("Title.TLabel", font=("Microsoft YaHei UI", 16, "bold"),
+                         foreground=self.TEXT_PRIMARY, background=self.BG)
+        style.configure("Subtitle.TLabel", font=("Microsoft YaHei UI", 9),
+                         foreground=self.TEXT_SECONDARY, background=self.CARD_BG)
+        style.configure("Hint.TLabel", font=("Microsoft YaHei UI", 8),
+                         foreground=self.TEXT_SECONDARY, background=self.CARD_BG)
+        style.configure("Status.TLabel", font=("Microsoft YaHei UI", 8),
+                         foreground=self.TEXT_SECONDARY, background=self.BG)
+
+        style.configure("TNotebook", background=self.BG, borderwidth=0)
+        style.configure("TNotebook.Tab", background=self.TAB_BG, foreground=self.TEXT_SECONDARY,
+                         font=("Microsoft YaHei UI", 9), padding=[16, 8], borderwidth=0)
+        style.map("TNotebook.Tab",
+                   background=[("selected", self.TAB_ACTIVE_BG)],
+                   foreground=[("selected", self.ACCENT)],
+                   expand=[("selected", [0, 0, 0, 2])])
+
+        style.configure("TEntry", fieldbackground=self.CARD_BG, borderwidth=1, relief="solid",
+                         bordercolor=self.BORDER, padding=6)
+        style.map("TEntry",
+                   bordercolor=[("focus", self.ACCENT)],
+                   fieldbackground=[("disabled", "#f0f1f3")])
+
+        style.configure("Accent.TButton", background=self.ACCENT, foreground="#ffffff",
+                         font=("Microsoft YaHei UI", 11, "bold"), borderwidth=0, padding=[20, 10])
+        style.map("Accent.TButton",
+                   background=[("active", self.ACCENT_HOVER), ("pressed", self.ACCENT_PRESS)],
+                   foreground=[("disabled", "#a0a0a0")])
+
+        style.configure("Secondary.TButton", background=self.TAB_BG, foreground=self.TEXT_PRIMARY,
+                         font=("Microsoft YaHei UI", 9), borderwidth=0, padding=[12, 6])
+        style.map("Secondary.TButton",
+                   background=[("active", self.BORDER), ("pressed", "#d5d9e0")])
+
+        style.configure("Small.TButton", background=self.TAB_BG, foreground=self.TEXT_SECONDARY,
+                         font=("Microsoft YaHei UI", 8), borderwidth=0, padding=[8, 4])
+        style.map("Small.TButton",
+                   background=[("active", self.BORDER)])
+
+        style.configure("TCheckbutton", background=self.CARD_BG, foreground=self.TEXT_PRIMARY,
+                         font=("Microsoft YaHei UI", 9))
+
+        style.configure("Log.TLabelframe", background=self.BORDER, borderwidth=0, padding=4)
+        style.configure("Log.TLabelframe.Label", background=self.BORDER, foreground=self.TEXT_SECONDARY,
+                         font=("Microsoft YaHei UI", 9, "bold"))
 
     def _build_ui(self):
-        main = ttk.Frame(self.root, padding=20)
-        main.pack(fill=tk.BOTH, expand=True)
+        main = ttk.Frame(self.root)
+        main.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
-        top_row = ttk.Frame(main)
-        top_row.pack(fill=tk.X)
-        self.title_label = ttk.Label(top_row, style="Title.TLabel")
+        header = tk.Frame(main, bg=self.CARD_BG, padx=24, pady=16)
+        header.pack(fill=tk.X)
+        header_inner = tk.Frame(header, bg=self.CARD_BG)
+        header_inner.pack(fill=tk.X)
+        self.title_label = ttk.Label(header_inner, style="Title.TLabel")
         self.title_label.pack(side=tk.LEFT, anchor=tk.CENTER)
-        self.lang_btn = ttk.Button(top_row, width=4, command=self._toggle_lang)
+        self.lang_btn = ttk.Button(header_inner, width=5, command=self._toggle_lang, style="Small.TButton")
         self.lang_btn.pack(side=tk.RIGHT)
 
-        ttk.Separator(main, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(8, 12))
+        body = ttk.Frame(main, padding=(20, 12, 20, 0))
+        body.pack(fill=tk.BOTH, expand=True)
 
-        self.notebook = ttk.Notebook(main)
-        self.notebook.pack(fill=tk.X, pady=(0, 12))
+        content_card = tk.Frame(body, bg=self.CARD_BG, highlightbackground=self.BORDER,
+                                 highlightthickness=1, padx=20, pady=16)
+        content_card.pack(fill=tk.X, pady=(0, 12))
 
-        tab_ext = ttk.Frame(self.notebook, padding=12)
+        self.notebook = ttk.Notebook(content_card)
+        self.notebook.pack(fill=tk.X)
+
+        tab_ext = ttk.Frame(self.notebook, padding=(8, 12))
         self.notebook.add(tab_ext, text="")
-        self.tab_ext_label = ttk.Label(tab_ext)
+        self.tab_ext_label = ttk.Label(tab_ext, style="Subtitle.TLabel")
         self.tab_ext_label.pack(anchor=tk.W)
-        self.ext_entry = ttk.Entry(tab_ext, width=70)
-        self.ext_entry.pack(fill=tk.X, pady=(4, 4))
-        self.ext_hint = ttk.Label(tab_ext, foreground="gray")
+        self.ext_entry = ttk.Entry(tab_ext)
+        self.ext_entry.pack(fill=tk.X, pady=(6, 4))
+        self.ext_hint = ttk.Label(tab_ext, style="Hint.TLabel")
         self.ext_hint.pack(anchor=tk.W)
 
-        tab_path = ttk.Frame(self.notebook, padding=12)
+        tab_path = ttk.Frame(self.notebook, padding=(8, 12))
         self.notebook.add(tab_path, text="")
-        self.tab_path_label = ttk.Label(tab_path)
+        self.tab_path_label = ttk.Label(tab_path, style="Subtitle.TLabel")
         self.tab_path_label.pack(anchor=tk.W)
         path_row = ttk.Frame(tab_path)
-        path_row.pack(fill=tk.X, pady=(4, 4))
-        self.path_entry = ttk.Entry(path_row, width=56)
+        path_row.pack(fill=tk.X, pady=(6, 4))
+        self.path_entry = ttk.Entry(path_row)
         self.path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.browse_btn = ttk.Button(path_row, command=self._browse)
-        self.browse_btn.pack(side=tk.LEFT, padx=(6, 0))
-        self.path_hint = ttk.Label(tab_path, foreground="gray")
+        self.browse_btn = ttk.Button(path_row, command=self._browse, style="Secondary.TButton")
+        self.browse_btn.pack(side=tk.LEFT, padx=(8, 0))
+        self.path_hint = ttk.Label(tab_path, style="Hint.TLabel")
         self.path_hint.pack(anchor=tk.W)
 
-        tab_folder = ttk.Frame(self.notebook, padding=12)
+        tab_folder = ttk.Frame(self.notebook, padding=(8, 12))
         self.notebook.add(tab_folder, text="")
-        self.tab_folder_label = ttk.Label(tab_folder)
+        self.tab_folder_label = ttk.Label(tab_folder, style="Subtitle.TLabel")
         self.tab_folder_label.pack(anchor=tk.W)
-        self.folder_entry = ttk.Entry(tab_folder, width=70)
-        self.folder_entry.pack(fill=tk.X, pady=(4, 4))
-        self.folder_hint = ttk.Label(tab_folder, foreground="gray")
+        self.folder_entry = ttk.Entry(tab_folder)
+        self.folder_entry.pack(fill=tk.X, pady=(6, 4))
+        self.folder_hint = ttk.Label(tab_folder, style="Hint.TLabel")
         self.folder_hint.pack(anchor=tk.W)
 
-        tab_date = ttk.Frame(self.notebook, padding=12)
+        tab_date = ttk.Frame(self.notebook, padding=(8, 12))
         self.notebook.add(tab_date, text="")
-        self.tab_date_label = ttk.Label(tab_date)
+        self.tab_date_label = ttk.Label(tab_date, style="Subtitle.TLabel")
         self.tab_date_label.pack(anchor=tk.W)
         date_row = ttk.Frame(tab_date)
-        date_row.pack(fill=tk.X, pady=(6, 4))
+        date_row.pack(fill=tk.X, pady=(8, 4))
         self.date_from_lbl = ttk.Label(date_row)
         self.date_from_lbl.pack(side=tk.LEFT)
-        self.date_from_entry = ttk.Entry(date_row, width=16)
-        self.date_from_entry.pack(side=tk.LEFT, padx=(4, 12))
+        self.date_from_entry = ttk.Entry(date_row, width=18)
+        self.date_from_entry.pack(side=tk.LEFT, padx=(6, 16))
         self.date_to_lbl = ttk.Label(date_row)
         self.date_to_lbl.pack(side=tk.LEFT)
-        self.date_to_entry = ttk.Entry(date_row, width=16)
-        self.date_to_entry.pack(side=tk.LEFT, padx=(4, 0))
-        self.date_hint = ttk.Label(tab_date, foreground="gray")
-        self.date_hint.pack(anchor=tk.W, pady=(4, 0))
+        self.date_to_entry = ttk.Entry(date_row, width=18)
+        self.date_to_entry.pack(side=tk.LEFT, padx=(6, 0))
+        self.date_hint = ttk.Label(tab_date, style="Hint.TLabel")
+        self.date_hint.pack(anchor=tk.W, pady=(6, 0))
 
-        self.run_btn = ttk.Button(main, style="Run.TButton", command=self._run)
-        self.run_btn.pack(fill=tk.X, pady=(0, 10))
+        self.run_btn = ttk.Button(body, style="Accent.TButton", command=self._run)
+        self.run_btn.pack(fill=tk.X, pady=(0, 12))
 
-        log_frame = ttk.LabelFrame(main, padding=6, style="Section.TLabelframe")
-        log_frame.pack(fill=tk.BOTH, expand=True)
-        self.log_frame = log_frame
-        self.log_text = tk.Text(log_frame, height=10, state=tk.DISABLED, font=("Consolas", 9),
-                                wrap=tk.WORD, bg="#1e1e1e", fg="#d4d4d4", selectbackground="#264f78")
-        scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
+        log_container = tk.Frame(body, bg=self.BORDER, padx=1, pady=1)
+        log_container.pack(fill=tk.BOTH, expand=True)
+
+        log_header = tk.Frame(log_container, bg=self.CARD_BG, padx=12, pady=(10, 6))
+        log_header.pack(fill=tk.X)
+        self.log_frame_label = ttk.Label(log_header, style="Card.TLabelframe.Label",
+                                          background=self.CARD_BG)
+        self.log_frame_label.pack(side=tk.LEFT)
+        self.log_frame = log_header
+
+        self.log_text = tk.Text(log_container, height=10, state=tk.DISABLED, font=("Cascadia Code", 9),
+                                wrap=tk.WORD, bg=self.LOG_BG, fg=self.LOG_FG,
+                                selectbackground=self.LOG_SELECT, relief=tk.FLAT,
+                                borderwidth=0, padx=12, pady=8,
+                                insertbackground=self.ACCENT, highlightthickness=0)
+        scrollbar = tk.Scrollbar(log_container, command=self.log_text.yview, bg=self.LOG_BG,
+                                  troughcolor=self.LOG_BG, activebackground=self.TEXT_SECONDARY,
+                                  width=8, borderwidth=0, relief=tk.FLAT)
         self.log_text.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
-        bottom_row = ttk.Frame(main)
-        bottom_row.pack(fill=tk.X, pady=(6, 0))
-        self.log_path_label = ttk.Label(bottom_row, foreground="gray")
-        self.log_path_label.pack(side=tk.LEFT)
-        self.export_btn = ttk.Button(bottom_row, command=self._export_csv)
+        footer = tk.Frame(body, bg=self.BG, pady=(8, 0))
+        footer.pack(fill=tk.X)
+        self.log_path_label = ttk.Label(footer, style="Status.TLabel")
+        self.log_path_label.pack(side=tk.LEFT, anchor=tk.CENTER)
+        self.export_btn = ttk.Button(footer, command=self._export_csv, style="Small.TButton")
         self.export_btn.pack(side=tk.RIGHT)
 
         self.status_var = tk.StringVar(value="")
-        ttk.Label(main, textvariable=self.status_var, foreground="gray").pack(anchor=tk.W, pady=(4, 0))
+        status_bar = tk.Frame(main, bg=self.CARD_BG, padx=24, pady=8)
+        status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        self.status_label = ttk.Label(status_bar, textvariable=self.status_var, style="Status.TLabel",
+                                       background=self.CARD_BG)
+        self.status_label.pack(side=tk.LEFT, anchor=tk.CENTER)
 
     def _rebuild_texts(self):
         s = STRINGS[self.lang]
         self.root.title(f"{s['app_title']} v{APP_VERSION}")
         self.title_label.config(text=s["app_title"])
         self.lang_btn.config(text=s["lang_switch"])
-        self.notebook.tab(0, text=s["by_ext"])
-        self.notebook.tab(1, text=s["by_path"])
-        self.notebook.tab(2, text=s["by_folder"])
-        self.notebook.tab(3, text=s["by_date"])
+        self.notebook.tab(0, text=f"  {s['by_ext'].strip()}  ")
+        self.notebook.tab(1, text=f"  {s['by_path'].strip()}  ")
+        self.notebook.tab(2, text=f"  {s['by_folder'].strip()}  ")
+        self.notebook.tab(3, text=f"  {s['by_date'].strip()}  ")
         self.tab_ext_label.config(text=s["ext_label"])
         self.ext_hint.config(text=s["ext_hint"])
         self.tab_path_label.config(text=s["path_label"])
@@ -337,7 +430,7 @@ class RecycleCleaner:
         self.date_to_lbl.config(text=s["to"])
         self.date_hint.config(text=s["date_hint"])
         self.run_btn.config(text=s["start_clean"])
-        self.log_frame.config(text=s["exec_log"])
+        self.log_frame_label.config(text=s["exec_log"])
         self.log_path_label.config(text=f"{s['log_path']}{self.log_file_path}")
         self.export_btn.config(text=s["export_csv"])
         self.status_var.set(s["ready"])
@@ -371,20 +464,30 @@ class RecycleCleaner:
         s = STRINGS[self.lang]
         dlg = tk.Toplevel(self.root)
         dlg.title(s["guide_title"])
-        dlg.geometry("460x380")
+        dlg.geometry("480x400")
         dlg.resizable(False, False)
         dlg.transient(self.root)
         dlg.grab_set()
-        self._center_child(dlg, 460, 380)
+        dlg.configure(bg=self.BG)
+        self._center_child(dlg, 480, 400)
 
-        text = tk.Text(dlg, wrap=tk.WORD, font=("Microsoft YaHei UI", 10), padx=16, pady=16, relief=tk.FLAT)
+        card = tk.Frame(dlg, bg=self.CARD_BG, padx=20, pady=20)
+        card.pack(fill=tk.BOTH, expand=True, padx=16, pady=(16, 0))
+
+        text = tk.Text(card, wrap=tk.WORD, font=("Microsoft YaHei UI", 10), padx=4, pady=4,
+                        relief=tk.FLAT, bg=self.CARD_BG, fg=self.TEXT_PRIMARY, highlightthickness=0,
+                        spacing1=2, spacing3=2)
         text.insert(tk.END, s["guide_text"])
         text.config(state=tk.DISABLED)
-        text.pack(fill=tk.BOTH, expand=True, padx=8, pady=(8, 0))
+        text.pack(fill=tk.BOTH, expand=True)
+
+        btn_area = tk.Frame(dlg, bg=self.BG, padx=16, pady=12)
+        btn_area.pack(fill=tk.X)
 
         var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(dlg, text=s["guide_confirm"], variable=var).pack(anchor=tk.W, padx=16, pady=4)
-        ttk.Button(dlg, text=s["guide_ok"], command=lambda: self._close_guide(dlg, var)).pack(pady=(4, 12))
+        ttk.Checkbutton(btn_area, text=s["guide_confirm"], variable=var).pack(anchor=tk.W, pady=(0, 8))
+        ttk.Button(btn_area, text=s["guide_ok"], command=lambda: self._close_guide(dlg, var),
+                    style="Accent.TButton").pack(fill=tk.X)
 
     def _close_guide(self, dlg, var):
         if var.get():
@@ -418,22 +521,29 @@ class RecycleCleaner:
         logging.error(err_text)
         dlg = tk.Toplevel(self.root)
         dlg.title(s["err_title"])
-        dlg.geometry("500x300")
+        dlg.geometry("520x320")
         dlg.transient(self.root)
         dlg.grab_set()
-        self._center_child(dlg, 500, 300)
+        dlg.configure(bg=self.BG)
+        self._center_child(dlg, 520, 320)
 
-        ttk.Label(dlg, text=s["err_msg"].format(err=str(exc)[:200]), wraplength=460, justify=tk.LEFT).pack(padx=16, pady=(12, 6), anchor=tk.W)
+        header = tk.Frame(dlg, bg=self.CARD_BG, padx=20, pady=(16, 8))
+        header.pack(fill=tk.X, padx=16, pady=(16, 0))
+        ttk.Label(header, text=s["err_msg"].format(err=str(exc)[:200]), wraplength=470, justify=tk.LEFT,
+                   background=self.CARD_BG, foreground=self.DANGER, font=("Microsoft YaHei UI", 9)).pack(anchor=tk.W)
 
-        t = tk.Text(dlg, wrap=tk.WORD, font=("Consolas", 9), height=8)
+        t = tk.Text(dlg, wrap=tk.WORD, font=("Cascadia Code", 8), height=8, bg=self.LOG_BG, fg=self.LOG_FG,
+                     relief=tk.FLAT, borderwidth=0, padx=12, pady=8, highlightthickness=0)
         t.insert(tk.END, err_text)
         t.config(state=tk.DISABLED)
-        t.pack(fill=tk.BOTH, expand=True, padx=16, pady=4)
+        t.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 8))
 
-        btn_row = ttk.Frame(dlg)
-        btn_row.pack(fill=tk.X, padx=16, pady=(4, 12))
-        ttk.Button(btn_row, text=s["err_copy"], command=lambda: self._copy_text(err_text)).pack(side=tk.LEFT)
-        ttk.Button(btn_row, text=s["close"], command=dlg.destroy).pack(side=tk.RIGHT)
+        btn_row = tk.Frame(dlg, bg=self.BG, padx=16, pady=(0, 16))
+        btn_row.pack(fill=tk.X)
+        ttk.Button(btn_row, text=s["err_copy"], command=lambda: self._copy_text(err_text),
+                    style="Secondary.TButton").pack(side=tk.LEFT)
+        ttk.Button(btn_row, text=s["close"], command=dlg.destroy,
+                    style="Accent.TButton").pack(side=tk.RIGHT)
 
     def _copy_text(self, text):
         self.root.clipboard_clear()
@@ -808,6 +918,9 @@ foreach ($item in $items) {
 def _run_uninstall_cleanup() -> None:
     import shutil
     cleanup_targets = []
+    data_dir = APP_DIR / "data"
+    if data_dir.exists():
+        cleanup_targets.append(data_dir)
     local_app = Path(os.environ.get("LOCALAPPDATA", "")) / "RecycleCleaner"
     if local_app.exists():
         cleanup_targets.append(local_app)
@@ -817,9 +930,8 @@ def _run_uninstall_cleanup() -> None:
     home_cfg = Path.home() / "RecycleCleaner"
     if home_cfg.exists():
         cleanup_targets.append(home_cfg)
-    exe_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else ROOT
     for pattern in ["*.log", "*.tmp"]:
-        for item in exe_dir.glob(pattern):
+        for item in APP_DIR.glob(pattern):
             cleanup_targets.append(item)
     for target in cleanup_targets:
         try:
