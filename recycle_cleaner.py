@@ -377,13 +377,14 @@ class RecycleCleaner:
         self.tab_size_label.pack(anchor=tk.W)
         size_row = ttk.Frame(tab_size)
         size_row.pack(fill=tk.X, pady=(6, 4))
-        self.size_mode_var = tk.StringVar(value="gt")
-        self.size_mode_gt = ttk.Radiobutton(size_row, variable=self.size_mode_var, value="gt")
-        self.size_mode_gt.pack(side=tk.LEFT)
-        self.size_mode_lt = ttk.Radiobutton(size_row, variable=self.size_mode_var, value="lt")
-        self.size_mode_lt.pack(side=tk.LEFT, padx=(8, 0))
-        self.size_entry = ttk.Entry(size_row, width=16)
-        self.size_entry.pack(side=tk.LEFT, padx=(12, 0))
+        self.size_from_lbl = ttk.Label(size_row)
+        self.size_from_lbl.pack(side=tk.LEFT)
+        self.size_from_entry = ttk.Entry(size_row, width=16)
+        self.size_from_entry.pack(side=tk.LEFT, padx=(6, 16))
+        self.size_to_lbl = ttk.Label(size_row)
+        self.size_to_lbl.pack(side=tk.LEFT)
+        self.size_to_entry = ttk.Entry(size_row, width=16)
+        self.size_to_entry.pack(side=tk.LEFT, padx=(6, 0))
         self.size_hint = ttk.Label(tab_size, style="Hint.TLabel")
         self.size_hint.pack(anchor=tk.W, pady=(6, 0))
 
@@ -450,8 +451,8 @@ class RecycleCleaner:
         self.date_to_lbl.config(text=s["to"])
         self.date_hint.config(text=s["date_hint"])
         self.tab_size_label.config(text=s["size_label"])
-        self.size_mode_gt.config(text=s["size_mode_gt"])
-        self.size_mode_lt.config(text=s["size_mode_lt"])
+        self.size_from_lbl.config(text=s["size_from"])
+        self.size_to_lbl.config(text=s["size_to"])
         self.size_hint.config(text=s["size_hint"])
         self.run_btn.config(text=s["start_clean"])
         self.log_frame_label.config(text=s["exec_log"])
@@ -920,26 +921,41 @@ foreach ($item in $items) {
 
     def _clean_by_size(self):
         s = STRINGS[self.lang]
-        raw = self.size_entry.get().strip()
-        if not raw:
-            messagebox.showwarning(s["selfcheck_title"], s["prompt_size"])
-            self.status_var.set(s["ready"])
-            return
-        threshold = self._parse_size(raw)
-        if threshold is None or threshold <= 0:
+        raw_from = self.size_from_entry.get().strip()
+        raw_to = self.size_to_entry.get().strip()
+
+        size_from = self._parse_size(raw_from) if raw_from else None
+        if raw_from and (size_from is None or size_from <= 0):
             messagebox.showwarning(s["selfcheck_title"], s["prompt_size_fmt"])
             self.status_var.set(s["ready"])
             return
-        is_gt = self.size_mode_var.get() == "gt"
-        op = ">=" if is_gt else "<="
+
+        size_to = self._parse_size(raw_to) if raw_to else None
+        if raw_to and (size_to is None or size_to <= 0):
+            messagebox.showwarning(s["selfcheck_title"], s["prompt_size_fmt"])
+            self.status_var.set(s["ready"])
+            return
+
+        if size_from is None and size_to is None:
+            messagebox.showwarning(s["selfcheck_title"], s["prompt_size"])
+            self.status_var.set(s["ready"])
+            return
+
         self._log(s["mode_size"])
-        self._log(s["target_size"] + f"{raw.upper()} ({op})")
+        if size_from and size_to:
+            self._log(s["target_size"] + f"{raw_from.upper()} ~ {raw_to.upper()}")
+        elif size_from:
+            self._log(s["target_size"] + f">= {raw_from.upper()}")
+        else:
+            self._log(s["target_size"] + f"<= {raw_to.upper()}")
+
         targets = []
         for r_path, orig_path, size, delete_time, name in self.scanned_items:
-            if is_gt and size >= threshold:
-                targets.append((r_path, orig_path, size, delete_time, name))
-            elif not is_gt and size <= threshold:
-                targets.append((r_path, orig_path, size, delete_time, name))
+            if size_from is not None and size < size_from:
+                continue
+            if size_to is not None and size > size_to:
+                continue
+            targets.append((r_path, orig_path, size, delete_time, name))
         self._do_delete(targets)
 
     def _open_log_dir(self):
