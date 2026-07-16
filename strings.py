@@ -12,6 +12,7 @@ STRINGS = {
         "by_path": "  按原始路径  ",
         "by_folder": "  按文件夹名  ",
         "by_date": "  按删除日期  ",
+        "by_size": "  按文件大小  ",
         "ext_label": "输入扩展名，多个用空格或逗号分隔：",
         "ext_hint": "示例:  .tmp  .log  .cache  .ps1  .pyc  .class",
         "path_label": "输入文件的原始父文件夹路径：",
@@ -23,10 +24,15 @@ STRINGS = {
         "from": "从:",
         "to": "到:",
         "date_hint": "格式: 2025-01-01  或  2025-01-01 12:30",
+        "size_label": "删除大于指定大小的文件：",
+        "size_hint": "示例:  100MB  或  1.5GB  或  500KB",
+        "size_mode_gt": "大于",
+        "size_mode_lt": "小于",
         "start_clean": "开始清理",
         "exec_log": "执行日志",
         "log_path": "日志路径: ",
         "export_csv": "导出CSV",
+        "open_log_dir": "打开日志目录",
         "lang_switch": "EN",
         "prompt_ext": "请输入至少一个文件扩展名",
         "prompt_ext_fmt": "扩展名格式不正确",
@@ -35,6 +41,9 @@ STRINGS = {
         "prompt_date_fmt_s": "起始日期格式不正确，请使用 YYYY-MM-DD",
         "prompt_date_fmt_e": "结束日期格式不正确，请使用 YYYY-MM-DD",
         "prompt_date_at_least": "请至少输入一个日期",
+        "prompt_size": "请输入文件大小",
+        "prompt_size_fmt": "大小格式不正确，示例: 100MB、1.5GB、500KB",
+        "mode_size": "清理模式: 按文件大小",
         "mode_ext": "清理模式: 按文件类型",
         "mode_path": "清理模式: 按原始路径",
         "mode_folder": "清理模式: 按文件夹名",
@@ -42,6 +51,7 @@ STRINGS = {
         "target_ext": "目标扩展名: ",
         "target_path": "目标路径: ",
         "target_folder": "目标文件夹: ",
+        "target_size": "目标大小: ",
         "date_range": "日期范围: ",
         "date_from_only": "删除日期 >= ",
         "date_to_only": "删除日期 <= ",
@@ -72,7 +82,8 @@ STRINGS = {
             "1. 按文件类型：根据扩展名筛选回收站文件\n"
             "2. 按原始路径：删除来自指定目录的文件\n"
             "3. 按文件夹名：删除属于特定文件夹的文件\n"
-            "4. 按删除日期：按删除时间范围清理\n\n"
+            "4. 按删除日期：按删除时间范围清理\n"
+            "5. 按文件大小：按文件大小筛选清理\n\n"
             "注意事项：\n"
             "- 删除操作不可恢复，请谨慎操作\n"
             "- 建议先预览结果再确认删除\n"
@@ -116,6 +127,7 @@ STRINGS = {
         "by_path": "  By Original Path  ",
         "by_folder": "  By Folder Name  ",
         "by_date": "  By Delete Date  ",
+        "by_size": "  By File Size  ",
         "ext_label": "Enter extensions, separated by space or comma:",
         "ext_hint": "Example:  .tmp  .log  .cache  .ps1  .pyc  .class",
         "path_label": "Enter the original parent folder path:",
@@ -127,10 +139,15 @@ STRINGS = {
         "from": "From:",
         "to": "To:",
         "date_hint": "Format: 2025-01-01  or  2025-01-01 12:30",
+        "size_label": "Delete files larger than specified size:",
+        "size_hint": "Example:  100MB  or  1.5GB  or  500KB",
+        "size_mode_gt": "Greater than",
+        "size_mode_lt": "Less than",
         "start_clean": "Start Cleaning",
         "exec_log": "Execution Log",
         "log_path": "Log: ",
         "export_csv": "Export CSV",
+        "open_log_dir": "Open Log Folder",
         "lang_switch": "中",
         "prompt_ext": "Please enter at least one file extension",
         "prompt_ext_fmt": "Extension format is incorrect",
@@ -139,6 +156,9 @@ STRINGS = {
         "prompt_date_fmt_s": "Start date format is incorrect, use YYYY-MM-DD",
         "prompt_date_fmt_e": "End date format is incorrect, use YYYY-MM-DD",
         "prompt_date_at_least": "Please enter at least one date",
+        "prompt_size": "Please enter file size",
+        "prompt_size_fmt": "Size format is incorrect, example: 100MB, 1.5GB, 500KB",
+        "mode_size": "Mode: By File Size",
         "mode_ext": "Mode: By File Type",
         "mode_path": "Mode: By Original Path",
         "mode_folder": "Mode: By Folder Name",
@@ -146,6 +166,7 @@ STRINGS = {
         "target_ext": "Target extensions: ",
         "target_path": "Target path: ",
         "target_folder": "Target folder: ",
+        "target_size": "Target size: ",
         "date_range": "Date range: ",
         "date_from_only": "Delete date >= ",
         "date_to_only": "Delete date <= ",
@@ -176,7 +197,8 @@ STRINGS = {
             "1. By File Type: Filter recycle bin files by extension\n"
             "2. By Original Path: Delete files from a specific directory\n"
             "3. By Folder Name: Delete files belonging to a folder\n"
-            "4. By Delete Date: Clean by delete time range\n\n"
+            "4. By Delete Date: Clean by delete time range\n"
+            "5. By File Size: Clean by file size\n\n"
             "Notes:\n"
             "- Deletion is irreversible, please be careful\n"
             "- Preview results before confirming deletion\n"

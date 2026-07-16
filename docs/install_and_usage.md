@@ -186,7 +186,7 @@ RecycleCleaner_Setup.exe /SILENT /SUPPRESSMSGBOXES /DIR="C:\Tools\RecycleCleaner
 
 支持查看运行日志文件位置：
 
-- 日志文件路径：`%APPDATA%\RecycleCleaner\logs\`
+- 日志文件路径：`<程序安装目录>\data\logs\`
 - 日志格式：`recycle_cleaner_YYYY-MM-DD.log`
 - 包含操作记录、错误信息、清理统计
 
@@ -199,7 +199,7 @@ RecycleCleaner_Setup.exe /SILENT /SUPPRESSMSGBOXES /DIR="C:\Tools\RecycleCleaner
 
 ### 日志文件
 
-- 路径：`%APPDATA%\RecycleCleaner\logs\`
+- 路径：`<程序安装目录>\data\logs\`
 - 文件名格式：`recycle_cleaner_YYYY-MM-DD.log`
 - 内容：每次清理操作的详细记录
 
@@ -211,8 +211,8 @@ RecycleCleaner_Setup.exe /SILENT /SUPPRESSMSGBOXES /DIR="C:\Tools\RecycleCleaner
 
 ### 配置文件
 
-- 路径：`%APPDATA%\RecycleCleaner\config\`
-- 文件名：`settings.json`
+- 路径：`<程序安装目录>\data\`
+- 文件名：`config.json`
 - 内容：用户设置和语言偏好
 
 ## 7. 自动更新行为说明

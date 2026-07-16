@@ -1,0 +1,129 @@
+====================================================
+        回收站清理工具 - 项目文件说明
+====================================================
+
+本文件列出项目目录下所有文件和文件夹的用途。
+
+
+一、根目录文件
+====================================================
+
+【核心程序】
+
+recycle_cleaner.py        主程序源码，包含全部 GUI 界面和清理逻辑
+strings.py                多语言字符串字典（中文/英文），供主程序调用
+VERSION                   版本号文件，统一管理版本（当前 v1.1.0）
+version_info.txt          Windows 可执行文件版本信息，PyInstaller 打包时嵌入 exe
+
+【运行脚本】
+
+run.bat                   快速启动脚本，优先运行 exe，不存在时回落到 python 脚本
+
+【构建打包】
+
+build.py                  PyInstaller 打包脚本，将 Python 脚本打包为单文件 exe
+build.bat                 简化版打包批处理，调用 build.py
+build_optimized.bat       UPX 压缩打包脚本，生成体积更小的 exe
+recycle_cleaner.spec      PyInstaller spec 文件，定义打包参数和资源
+RecycleCleaner.spec       PyInstaller 生成的 spec 文件（构建时自动产生）
+build_installer.bat       安装包构建脚本（调用 Inno Setup）
+build_installer_offline.bat  离线安装包构建脚本（自动查找本地 Inno Setup）
+
+【发布工具】
+
+release.py                一键发布脚本：版本同步 → 构建 exe → 签名 → 安装包 → 压缩包
+create_release_zip.py     生成发布压缩包（exe + 使用说明 + 启动脚本）
+sync_version.py           版本同步工具：将 VERSION 文件中的版本号同步到所有相关文件
+
+【图标生成】
+
+create_icon.py            图标生成脚本，创建应用图标 assets/logo.ico
+install_shortcut.py       桌面快捷方式创建脚本
+
+【GitHub 工具】
+
+gh_create_repo.py         GitHub 仓库创建脚本
+upload_docs_api.py        通过 GitHub REST API 上传文件（Python urllib 版）
+upload_docs_curl.py       通过 GitHub REST API 上传文件（curl 版，网络兼容性更好）
+upload_file_api.py        上传单个文件到 GitHub 仓库
+upload_repo_api.py        批量上传整个仓库到 GitHub
+
+【安装包相关】
+
+check_iscc.ps1            检查 Inno Setup 编译器是否安装
+get_iscc.ps1              下载并安装 Inno Setup 6 到本地 tools 目录
+
+【文档】
+
+README.md                 项目主文档，GitHub 仓库首页展示
+README_RELEASE.txt        压缩包内的简要说明文件
+使用说明.txt              面向最终用户的纯文本使用说明
+.gitignore                Git 忽略规则，排除 dist/、build/、tools/ 等目录
+
+
+二、assets/ 目录
+====================================================
+
+logo.ico                  应用图标文件，用于 exe 图标和安装包图标
+README.txt                资源目录说明
+
+
+三、docs/ 目录
+====================================================
+
+install_and_usage.md      安装与使用详细文档
+release.md                发布说明，含产品化能力清单和构建流程
+
+
+四、installer/ 目录
+====================================================
+
+RecycleCleaner.iss        Inno Setup 安装包脚本，定义安装界面、许可协议、快捷方式、卸载逻辑
+license.txt               安装许可协议文本，安装时显示
+README_INSTALLER.txt      安装包目录说明
+
+
+五、release/ 目录
+====================================================
+
+RecycleCleaner.exe                    最新构建的单文件可执行程序（稳定名称）
+RecycleCleaner_Setup.exe              最新构建的安装包（稳定名称）
+RecycleCleaner_Setup_v1.0.0.exe       v1.0.0 版本安装包（历史存档）
+RecycleCleaner_Setup_v1.1.0.exe       v1.1.0 版本安装包
+RecycleCleaner_v1.0.0.zip             v1.0.0 版本压缩包（历史存档）
+RecycleCleaner_v1.1.0.zip             v1.1.0 版本压缩包
+RecycleCleaner_Release.zip            最新构建的发布压缩包（稳定名称）
+
+
+六、构建产物目录（已 gitignore）
+====================================================
+
+dist/                     PyInstaller 构建输出目录
+build/                    PyInstaller 构建临时目录
+tools/                    本地工具目录（Inno Setup 等）
+*.egg-info                Python 包信息
+
+
+七、运行时自动生成目录
+====================================================
+
+程序安装目录/data/        运行时自动创建，存放配置和日志
+程序安装目录/data/logs/   日志文件目录，按日期记录操作
+程序安装目录/data/config.json  用户配置文件（语言、引导状态等）
+
+
+八、文件关系图
+====================================================
+
+  VERSION ──sync_version.py──> recycle_cleaner.py (APP_VERSION)
+                                 version_info.txt
+                                 installer/RecycleCleaner.iss
+
+  recycle_cleaner.py ◄── strings.py（多语言文案）
+
+  release.py 调用链：
+    sync_version.py → build.py → Inno Setup → create_release_zip.py
+    输出到 release/ 目录
+
+
+====================================================

@@ -33,8 +33,18 @@ def resolve_branch():
 
 
 def git_files():
-    out = subprocess.check_output(["git", "ls-files"], cwd=ROOT, text=True)
-    return [line.strip() for line in out.splitlines() if line.strip()]
+    out = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
+    raw = out.split(b"\x00")
+    result = []
+    for item in raw:
+        if not item:
+            continue
+        if item.startswith(b"\"") and item.endswith(b"\""):
+            item = item[1:-1].decode("unicode_escape").encode("raw_unicode_escape")
+            result.append(item.decode("utf-8"))
+        else:
+            result.append(item.decode("utf-8"))
+    return result
 
 
 def create_blob(path):

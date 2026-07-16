@@ -16,7 +16,7 @@ def main() -> None:
 
     with zipfile.ZipFile(OUT, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(exe, exe.name)
-        for name in ["run.bat", "install_shortcut.py", "README_RELEASE.txt"]:
+        for name in ["run.bat", "install_shortcut.py", "README_RELEASE.txt", "使用说明.txt"]:
             p = ROOT / name
             if p.exists():
                 zf.write(p, p.name)

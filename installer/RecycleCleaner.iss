@@ -1,14 +1,14 @@
 [Setup]
 AppId={{B6E2C3D1-6F8A-4C2D-9B77-38E4A1C5D9F0}
 AppName=Recycle Cleaner
-AppVersion=1.0.0
-AppVerName=Recycle Cleaner 1.0.0
+AppVersion=1.1.0
+AppVerName=Recycle Cleaner 1.1.0
 AppPublisher=Recycle Cleaner
 AppPublisherURL=https://example.com/recycle-cleaner
 AppSupportURL=https://example.com/recycle-cleaner
 AppCopyright=Copyright (c) Recycle Cleaner
 AppComments=Recycle Bin cleanup utility for Windows
-VersionInfoVersion=1.0.0.0
+VersionInfoVersion=1.1.0.0
 VersionInfoDescription=Recycle Cleaner Setup
 VersionInfoProductName=Recycle Cleaner
 DefaultDirName={autopf}\Recycle Cleaner
