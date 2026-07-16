@@ -371,6 +371,22 @@ class RecycleCleaner:
         self.date_hint = ttk.Label(tab_date, style="Hint.TLabel")
         self.date_hint.pack(anchor=tk.W, pady=(6, 0))
 
+        tab_size = ttk.Frame(self.notebook, padding=(8, 12))
+        self.notebook.add(tab_size, text="")
+        self.tab_size_label = ttk.Label(tab_size, style="Subtitle.TLabel")
+        self.tab_size_label.pack(anchor=tk.W)
+        size_row = ttk.Frame(tab_size)
+        size_row.pack(fill=tk.X, pady=(6, 4))
+        self.size_mode_var = tk.StringVar(value="gt")
+        self.size_mode_gt = ttk.Radiobutton(size_row, variable=self.size_mode_var, value="gt")
+        self.size_mode_gt.pack(side=tk.LEFT)
+        self.size_mode_lt = ttk.Radiobutton(size_row, variable=self.size_mode_var, value="lt")
+        self.size_mode_lt.pack(side=tk.LEFT, padx=(8, 0))
+        self.size_entry = ttk.Entry(size_row, width=16)
+        self.size_entry.pack(side=tk.LEFT, padx=(12, 0))
+        self.size_hint = ttk.Label(tab_size, style="Hint.TLabel")
+        self.size_hint.pack(anchor=tk.W, pady=(6, 0))
+
         self.run_btn = ttk.Button(body, style="Accent.TButton", command=self._run)
         self.run_btn.pack(fill=tk.X, pady=(0, 12))
 
@@ -421,6 +437,7 @@ class RecycleCleaner:
         self.notebook.tab(1, text=f"  {s['by_path'].strip()}  ")
         self.notebook.tab(2, text=f"  {s['by_folder'].strip()}  ")
         self.notebook.tab(3, text=f"  {s['by_date'].strip()}  ")
+        self.notebook.tab(4, text=f"  {s['by_size'].strip()}  ")
         self.tab_ext_label.config(text=s["ext_label"])
         self.ext_hint.config(text=s["ext_hint"])
         self.tab_path_label.config(text=s["path_label"])
@@ -432,6 +449,10 @@ class RecycleCleaner:
         self.date_from_lbl.config(text=s["from"])
         self.date_to_lbl.config(text=s["to"])
         self.date_hint.config(text=s["date_hint"])
+        self.tab_size_label.config(text=s["size_label"])
+        self.size_mode_gt.config(text=s["size_mode_gt"])
+        self.size_mode_lt.config(text=s["size_mode_lt"])
+        self.size_hint.config(text=s["size_hint"])
         self.run_btn.config(text=s["start_clean"])
         self.log_frame_label.config(text=s["exec_log"])
         self.log_path_label.config(text=f"{s['log_path']}{self.log_file_path}")
@@ -686,8 +707,10 @@ foreach ($item in $items) {
             self._clean_by_path()
         elif tab_idx == 2:
             self._clean_by_folder_name()
-        else:
+        elif tab_idx == 3:
             self._clean_by_date()
+        else:
+            self._clean_by_size()
 
     def _show_preview(self, targets) -> bool:
         s = STRINGS[self.lang]
@@ -877,6 +900,46 @@ foreach ($item in $items) {
 
         if skipped > 0:
             self._log(s["skipped_no_date"].format(n=skipped))
+        self._do_delete(targets)
+
+    @staticmethod
+    def _parse_size(raw: str) -> int | None:
+        raw = raw.strip().upper()
+        units = {"KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
+        for suffix, mul in units.items():
+            if raw.endswith(suffix):
+                num = raw[:-len(suffix)].strip()
+                try:
+                    return int(float(num) * mul)
+                except ValueError:
+                    return None
+        try:
+            return int(float(raw))
+        except ValueError:
+            return None
+
+    def _clean_by_size(self):
+        s = STRINGS[self.lang]
+        raw = self.size_entry.get().strip()
+        if not raw:
+            messagebox.showwarning(s["selfcheck_title"], s["prompt_size"])
+            self.status_var.set(s["ready"])
+            return
+        threshold = self._parse_size(raw)
+        if threshold is None or threshold <= 0:
+            messagebox.showwarning(s["selfcheck_title"], s["prompt_size_fmt"])
+            self.status_var.set(s["ready"])
+            return
+        is_gt = self.size_mode_var.get() == "gt"
+        op = ">=" if is_gt else "<="
+        self._log(s["mode_size"])
+        self._log(s["target_size"] + f"{raw.upper()} ({op})")
+        targets = []
+        for r_path, orig_path, size, delete_time, name in self.scanned_items:
+            if is_gt and size >= threshold:
+                targets.append((r_path, orig_path, size, delete_time, name))
+            elif not is_gt and size <= threshold:
+                targets.append((r_path, orig_path, size, delete_time, name))
         self._do_delete(targets)
 
     def _open_log_dir(self):
