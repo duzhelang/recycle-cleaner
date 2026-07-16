@@ -375,16 +375,25 @@ class RecycleCleaner:
         self.notebook.add(tab_size, text="")
         self.tab_size_label = ttk.Label(tab_size, style="Subtitle.TLabel")
         self.tab_size_label.pack(anchor=tk.W)
-        size_row = ttk.Frame(tab_size)
-        size_row.pack(fill=tk.X, pady=(6, 4))
-        self.size_from_lbl = ttk.Label(size_row)
+        self.size_units = ["KB", "MB", "GB", "TB"]
+        from_row = ttk.Frame(tab_size)
+        from_row.pack(fill=tk.X, pady=(6, 4))
+        self.size_from_lbl = ttk.Label(from_row)
         self.size_from_lbl.pack(side=tk.LEFT)
-        self.size_from_entry = ttk.Entry(size_row, width=16)
-        self.size_from_entry.pack(side=tk.LEFT, padx=(6, 16))
-        self.size_to_lbl = ttk.Label(size_row)
+        self.size_from_entry = ttk.Entry(from_row, width=10)
+        self.size_from_entry.pack(side=tk.LEFT, padx=(6, 4))
+        self.size_from_unit = ttk.Combobox(from_row, values=self.size_units, width=5, state="readonly")
+        self.size_from_unit.set("MB")
+        self.size_from_unit.pack(side=tk.LEFT)
+        to_row = ttk.Frame(tab_size)
+        to_row.pack(fill=tk.X, pady=(0, 4))
+        self.size_to_lbl = ttk.Label(to_row)
         self.size_to_lbl.pack(side=tk.LEFT)
-        self.size_to_entry = ttk.Entry(size_row, width=16)
-        self.size_to_entry.pack(side=tk.LEFT, padx=(6, 0))
+        self.size_to_entry = ttk.Entry(to_row, width=10)
+        self.size_to_entry.pack(side=tk.LEFT, padx=(6, 4))
+        self.size_to_unit = ttk.Combobox(to_row, values=self.size_units, width=5, state="readonly")
+        self.size_to_unit.set("MB")
+        self.size_to_unit.pack(side=tk.LEFT)
         self.size_hint = ttk.Label(tab_size, style="Hint.TLabel")
         self.size_hint.pack(anchor=tk.W, pady=(6, 0))
 
@@ -924,30 +933,42 @@ foreach ($item in $items) {
         raw_from = self.size_from_entry.get().strip()
         raw_to = self.size_to_entry.get().strip()
 
-        size_from = self._parse_size(raw_from) if raw_from else None
-        if raw_from and (size_from is None or size_from <= 0):
-            messagebox.showwarning(s["selfcheck_title"], s["prompt_size_fmt"])
-            self.status_var.set(s["ready"])
-            return
-
-        size_to = self._parse_size(raw_to) if raw_to else None
-        if raw_to and (size_to is None or size_to <= 0):
-            messagebox.showwarning(s["selfcheck_title"], s["prompt_size_fmt"])
-            self.status_var.set(s["ready"])
-            return
-
-        if size_from is None and size_to is None:
+        if not raw_from and not raw_to:
             messagebox.showwarning(s["selfcheck_title"], s["prompt_size"])
             self.status_var.set(s["ready"])
             return
 
+        size_from = None
+        if raw_from:
+            try:
+                num = float(raw_from)
+                size_from = int(num * {"KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}[self.size_from_unit.get()])
+                if size_from <= 0:
+                    raise ValueError
+            except (ValueError, KeyError):
+                messagebox.showwarning(s["selfcheck_title"], s["prompt_size_fmt"])
+                self.status_var.set(s["ready"])
+                return
+
+        size_to = None
+        if raw_to:
+            try:
+                num = float(raw_to)
+                size_to = int(num * {"KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}[self.size_to_unit.get()])
+                if size_to <= 0:
+                    raise ValueError
+            except (ValueError, KeyError):
+                messagebox.showwarning(s["selfcheck_title"], s["prompt_size_fmt"])
+                self.status_var.set(s["ready"])
+                return
+
         self._log(s["mode_size"])
-        if size_from and size_to:
-            self._log(s["target_size"] + f"{raw_from.upper()} ~ {raw_to.upper()}")
-        elif size_from:
-            self._log(s["target_size"] + f">= {raw_from.upper()}")
+        if size_from is not None and size_to is not None:
+            self._log(s["target_size"] + f"{raw_from}{self.size_from_unit.get()} ~ {raw_to}{self.size_to_unit.get()}")
+        elif size_from is not None:
+            self._log(s["target_size"] + f">= {raw_from}{self.size_from_unit.get()}")
         else:
-            self._log(s["target_size"] + f"<= {raw_to.upper()}")
+            self._log(s["target_size"] + f"<= {raw_to}{self.size_to_unit.get()}")
 
         targets = []
         for r_path, orig_path, size, delete_time, name in self.scanned_items:
