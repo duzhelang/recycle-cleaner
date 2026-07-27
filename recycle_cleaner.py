@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import ctypes
+if hasattr(ctypes, 'windll'):
+    _hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+    if _hwnd:
+        ctypes.windll.user32.ShowWindow(_hwnd, 0)
+
 import re
 import csv
 import json
@@ -22,7 +28,7 @@ from urllib.request import urlopen, Request
 from strings import STRINGS
 
 APP_NAME = "回收站清理工具"
-APP_VERSION = "1.1.0"
+APP_VERSION = "2.0.0"
 APP_ID = "recycle-cleaner"
 GITHUB_REPO = "https://api.github.com/repos/user/recycle-cleaner/releases/latest"
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
@@ -30,6 +36,49 @@ CONFIG_DIR = APP_DIR / "data"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 LOG_DIR = CONFIG_DIR / "logs"
 
+# ── Design Tokens ──────────────────────────────────────────────────────────────
+
+C = {
+    "bg":         "#f0f2f5",
+    "card":       "#ffffff",
+    "card_alt":   "#f8f9fb",
+    "surface":    "#f5f6f8",
+    "border":     "#e1e4e8",
+    "border_lt":  "#eef0f2",
+    "accent":     "#2563eb",
+    "accent_h":   "#1d4ed8",
+    "accent_p":   "#1e40af",
+    "accent_lt":  "#eff6ff",
+    "text":       "#111827",
+    "text2":      "#6b7280",
+    "text3":      "#9ca3af",
+    "white":      "#ffffff",
+    "success":    "#059669",
+    "warning":    "#d97706",
+    "danger":     "#dc2626",
+    "log_bg":     "#0f1117",
+    "log_fg":     "#c9d1d9",
+    "log_dim":    "#484f58",
+    "log_accent": "#58a6ff",
+    "row_alt":    "#f6f8fa",
+}
+
+F = {
+    "title": ("Segoe UI", 18, "bold"),
+    "heading": ("Segoe UI", 11, "bold"),
+    "body": ("Segoe UI", 10),
+    "body_b": ("Segoe UI", 10, "bold"),
+    "small": ("Segoe UI", 9),
+    "small_b": ("Segoe UI", 9, "bold"),
+    "tiny": ("Segoe UI", 8),
+    "mono": ("Cascadia Code", 9),
+    "btn": ("Segoe UI", 12, "bold"),
+}
+
+PAD = {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 20, "xxl": 28}
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _ensure_dirs():
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -184,42 +233,32 @@ def _check_update_async(lang: str, callback):
         logging.debug("Update check failed", exc_info=True)
 
 
+# ── Application ────────────────────────────────────────────────────────────────
+
 class RecycleCleaner:
-    BG = "#f7f8fa"
-    CARD_BG = "#ffffff"
-    ACCENT = "#4f6ef7"
-    ACCENT_HOVER = "#3b5bdb"
-    ACCENT_PRESS = "#2f4ec7"
-    TEXT_PRIMARY = "#1a1d23"
-    TEXT_SECONDARY = "#6b7280"
-    BORDER = "#e2e5ea"
-    LOG_BG = "#1b1f27"
-    LOG_FG = "#d1d5db"
-    LOG_SELECT = "#3b5bdb"
-    SUCCESS = "#10b981"
-    WARNING = "#f59e0b"
-    DANGER = "#ef4444"
-    TAB_BG = "#edf0f5"
-    TAB_ACTIVE_BG = "#ffffff"
+    MODE_KEYS = ["by_ext", "by_path", "by_folder", "by_date", "by_size"]
 
     def __init__(self):
         self.cfg = _load_config()
         self.lang = self.cfg.get("lang", "zh")
         self.log_file_path = _setup_logging()
-        self.scanned_items = []
-        self._last_targets = []
+        self.scanned_items: list[tuple] = []
+        self._last_targets: list[tuple] = []
+        self._active_mode = 0
+        self._seg_widgets: list[tuple[tk.Frame, tk.Label, tk.Frame]] = []
+        self._content_frames: list[ttk.Frame] = []
 
         self.root = tk.Tk()
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
-        self.root.geometry("700x750")
+        self.root.geometry("760x780")
         self.root.resizable(False, False)
-        self.root.configure(bg=self.BG)
+        self.root.configure(bg=C["bg"])
 
         icon_path = _resolve_packaged_resource("assets/logo.ico")
         if icon_path is not None:
             self.root.iconbitmap(icon_path)
 
-        self._center_window(700, 750)
+        self._center_window(760, 780)
         self._apply_style()
         self._build_ui()
         self._rebuild_texts()
@@ -228,6 +267,8 @@ class RecycleCleaner:
             self.root.after(300, self._show_guide)
 
         self.root.after(500, self._async_update_check)
+
+    # ── Helpers ────────────────────────────────────────────────────────────
 
     def _t(self, key: str, **kwargs) -> str:
         val = STRINGS.get(self.lang, STRINGS["zh"]).get(key, key)
@@ -242,203 +283,348 @@ class RecycleCleaner:
         y = (sh - h) // 2
         self.root.geometry(f"{w}x{h}+{x}+{y}")
 
+    # ── Styles ─────────────────────────────────────────────────────────────
+
     def _apply_style(self):
         style = ttk.Style()
         style.theme_use("clam")
 
-        style.configure(".", background=self.BG, foreground=self.TEXT_PRIMARY, font=("Microsoft YaHei UI", 9))
+        style.configure(".", background=C["bg"], foreground=C["text"], font=F["body"])
+        style.configure("Card.TFrame", background=C["card"])
+        style.configure("Surface.TFrame", background=C["surface"])
 
-        style.configure("Card.TFrame", background=self.CARD_BG)
-        style.configure("Card.TLabelframe", background=self.CARD_BG, borderwidth=1, relief="solid",
-                         bordercolor=self.BORDER, padding=16)
-        style.configure("Card.TLabelframe.Label", background=self.CARD_BG, foreground=self.TEXT_PRIMARY,
-                         font=("Microsoft YaHei UI", 10, "bold"))
-
-        style.configure("Title.TLabel", font=("Microsoft YaHei UI", 16, "bold"),
-                         foreground=self.TEXT_PRIMARY, background=self.BG)
-        style.configure("Subtitle.TLabel", font=("Microsoft YaHei UI", 9),
-                         foreground=self.TEXT_SECONDARY, background=self.CARD_BG)
-        style.configure("Hint.TLabel", font=("Microsoft YaHei UI", 8),
-                         foreground=self.TEXT_SECONDARY, background=self.CARD_BG)
-        style.configure("Status.TLabel", font=("Microsoft YaHei UI", 8),
-                         foreground=self.TEXT_SECONDARY, background=self.BG)
-
-        style.configure("TNotebook", background=self.BG, borderwidth=0)
-        style.configure("TNotebook.Tab", background=self.TAB_BG, foreground=self.TEXT_SECONDARY,
-                         font=("Microsoft YaHei UI", 9), padding=[16, 8], borderwidth=0)
-        style.map("TNotebook.Tab",
-                   background=[("selected", self.TAB_ACTIVE_BG)],
-                   foreground=[("selected", self.ACCENT)],
-                   expand=[("selected", [0, 0, 0, 2])])
-
-        style.configure("TEntry", fieldbackground=self.CARD_BG, borderwidth=1, relief="solid",
-                         bordercolor=self.BORDER, padding=6)
-        style.map("TEntry",
-                   bordercolor=[("focus", self.ACCENT)],
-                   fieldbackground=[("disabled", "#f0f1f3")])
-
-        style.configure("Accent.TButton", background=self.ACCENT, foreground="#ffffff",
-                         font=("Microsoft YaHei UI", 11, "bold"), borderwidth=0, padding=[20, 10])
+        style.configure("Accent.TButton",
+                         background=C["accent"], foreground=C["white"],
+                         font=F["btn"], borderwidth=0, padding=[32, 14])
         style.map("Accent.TButton",
-                   background=[("active", self.ACCENT_HOVER), ("pressed", self.ACCENT_PRESS)],
-                   foreground=[("disabled", "#a0a0a0")])
+                   background=[("active", C["accent_h"]), ("pressed", C["accent_p"]),
+                               ("disabled", "#94a3b8")],
+                   foreground=[("disabled", "#e2e8f0")])
 
-        style.configure("Secondary.TButton", background=self.TAB_BG, foreground=self.TEXT_PRIMARY,
-                         font=("Microsoft YaHei UI", 9), borderwidth=0, padding=[12, 6])
-        style.map("Secondary.TButton",
-                   background=[("active", self.BORDER), ("pressed", "#d5d9e0")])
+        style.configure("Tool.TButton",
+                         background=C["card"], foreground=C["text2"],
+                         font=F["small"], borderwidth=1, relief="solid",
+                         bordercolor=C["border"], padding=[12, 6])
+        style.map("Tool.TButton",
+                   background=[("active", C["surface"]), ("pressed", C["border_lt"])],
+                   bordercolor=[("active", C["border"])])
 
-        style.configure("Small.TButton", background=self.TAB_BG, foreground=self.TEXT_SECONDARY,
-                         font=("Microsoft YaHei UI", 8), borderwidth=0, padding=[8, 4])
+        style.configure("Small.TButton",
+                         background=C["bg"], foreground=C["text2"],
+                         font=F["tiny"], borderwidth=0, padding=[8, 4])
         style.map("Small.TButton",
-                   background=[("active", self.BORDER)])
+                   background=[("active", C["surface"])])
 
-        style.configure("TCheckbutton", background=self.CARD_BG, foreground=self.TEXT_PRIMARY,
-                         font=("Microsoft YaHei UI", 9))
+        style.configure("TEntry", fieldbackground=C["card"], borderwidth=1,
+                         relief="solid", bordercolor=C["border"], padding=8,
+                         font=F["body"])
+        style.map("TEntry",
+                   bordercolor=[("focus", C["accent"])],
+                   fieldbackground=[("disabled", C["surface"])])
 
-        style.configure("Log.TLabelframe", background=self.BORDER, borderwidth=0, padding=4)
-        style.configure("Log.TLabelframe.Label", background=self.BORDER, foreground=self.TEXT_SECONDARY,
-                         font=("Microsoft YaHei UI", 9, "bold"))
+        style.configure("TCombobox", fieldbackground=C["card"], borderwidth=1,
+                         relief="solid", bordercolor=C["border"], padding=6,
+                         font=F["body"])
+        style.map("TCombobox",
+                   bordercolor=[("focus", C["accent"])])
+
+        style.configure("TCheckbutton", background=C["card"], foreground=C["text"],
+                         font=F["body"])
+        style.configure("TLabel", background=C["bg"], foreground=C["text"],
+                         font=F["body"])
+
+    # ── Segmented Control ──────────────────────────────────────────────────
+
+    def _create_segmented_control(self, parent):
+        seg_outer = tk.Frame(parent, bg=C["surface"], padx=2, pady=2)
+        seg_outer.pack(fill=tk.X, pady=(0, 16))
+
+        self._seg_widgets = []
+        for idx in range(5):
+            frame = tk.Frame(seg_outer, bg=C["surface"], cursor="hand2",
+                             padx=2, pady=2)
+            frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=1)
+
+            indicator = tk.Frame(frame, bg=C["surface"], height=3)
+            indicator.pack(fill=tk.X, pady=(0, 2))
+
+            label = tk.Label(frame, font=F["small"], bg=C["surface"],
+                             fg=C["text2"], cursor="hand2", pady=6)
+            label.pack(fill=tk.X)
+
+            self._seg_widgets.append((frame, label, indicator))
+
+            for widget in (frame, label):
+                widget.bind("<Button-1>", lambda e, i=idx: self._switch_mode(i))
+                widget.bind("<Enter>", lambda e, i=idx: self._seg_hover(i, True))
+                widget.bind("<Leave>", lambda e, i=idx: self._seg_hover(i, False))
+
+        self._set_active_segment(0)
+
+    def _seg_hover(self, idx, entering):
+        if idx == self._active_mode:
+            return
+        frame, label, indicator = self._seg_widgets[idx]
+        bg = C["border_lt"] if entering else C["surface"]
+        for w in (frame, label, indicator):
+            w.configure(bg=bg)
+
+    def _set_active_segment(self, idx):
+        for i, (frame, label, indicator) in enumerate(self._seg_widgets):
+            if i == idx:
+                for w in (frame, label, indicator):
+                    w.configure(bg=C["card"])
+                indicator.configure(bg=C["accent"], height=3)
+                label.configure(fg=C["accent"], font=F["small_b"])
+            else:
+                for w in (frame, label, indicator):
+                    w.configure(bg=C["surface"])
+                indicator.configure(bg=C["surface"], height=3)
+                label.configure(fg=C["text2"], font=F["small"])
+
+    def _switch_mode(self, idx):
+        if idx == self._active_mode:
+            return
+        self._active_mode = idx
+        self._set_active_segment(idx)
+        for i, frame in enumerate(self._content_frames):
+            if i == idx:
+                frame.pack(fill=tk.X, pady=0)
+            else:
+                frame.pack_forget()
+
+    # ── Build UI ───────────────────────────────────────────────────────────
 
     def _build_ui(self):
         main = ttk.Frame(self.root)
-        main.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
+        main.pack(fill=tk.BOTH, expand=True)
 
-        header = tk.Frame(main, bg=self.CARD_BG, padx=24, pady=16)
+        # ── Header Bar ─────────────────────────────────────────────────────
+        header = tk.Frame(main, bg=C["accent"], padx=24, pady=18)
         header.pack(fill=tk.X)
-        header_inner = tk.Frame(header, bg=self.CARD_BG)
+        header_inner = tk.Frame(header, bg=C["accent"])
         header_inner.pack(fill=tk.X)
-        self.title_label = ttk.Label(header_inner, style="Title.TLabel")
-        self.title_label.pack(side=tk.LEFT, anchor=tk.CENTER)
-        self.lang_btn = ttk.Button(header_inner, width=5, command=self._toggle_lang, style="Small.TButton")
-        self.lang_btn.pack(side=tk.RIGHT)
 
-        body = ttk.Frame(main, padding=(20, 12, 20, 0))
+        self.title_label = tk.Label(header_inner, font=F["title"],
+                                     fg=C["white"], bg=C["accent"])
+        self.title_label.pack(side=tk.LEFT, anchor=tk.CENTER)
+
+        self.lang_btn = tk.Label(header_inner, font=F["small_b"],
+                                  fg="#bfdbfe", bg=C["accent"],
+                                  cursor="hand2", padx=10, pady=4)
+        self.lang_btn.pack(side=tk.RIGHT)
+        self.lang_btn.bind("<Button-1>", lambda e: self._toggle_lang())
+        self.lang_btn.bind("<Enter>",
+                           lambda e: self.lang_btn.configure(fg=C["white"]))
+        self.lang_btn.bind("<Leave>",
+                           lambda e: self.lang_btn.configure(fg="#bfdbfe"))
+
+        # ── Body ───────────────────────────────────────────────────────────
+        body = ttk.Frame(main, padding=(24, 20, 24, 0))
         body.pack(fill=tk.BOTH, expand=True)
 
-        content_card = tk.Frame(body, bg=self.CARD_BG, highlightbackground=self.BORDER,
-                                 highlightthickness=1, padx=20, pady=16)
-        content_card.pack(fill=tk.X, pady=(0, 12))
+        # Segment control
+        self._create_segmented_control(body)
 
-        self.notebook = ttk.Notebook(content_card)
-        self.notebook.pack(fill=tk.X)
+        # ── Content Cards ──────────────────────────────────────────────────
+        self._content_frames = []
 
-        tab_ext = ttk.Frame(self.notebook, padding=(8, 12))
-        self.notebook.add(tab_ext, text="")
-        self.tab_ext_label = ttk.Label(tab_ext, style="Subtitle.TLabel")
-        self.tab_ext_label.pack(anchor=tk.W)
-        self.ext_entry = ttk.Entry(tab_ext)
-        self.ext_entry.pack(fill=tk.X, pady=(6, 4))
-        self.ext_hint = ttk.Label(tab_ext, style="Hint.TLabel")
-        self.ext_hint.pack(anchor=tk.W)
+        # Card: By Extension
+        f_ext = ttk.Frame(body)
+        self._content_frames.append(f_ext)
+        card_ext = tk.Frame(f_ext, bg=C["card"], highlightbackground=C["border"],
+                            highlightthickness=1, padx=20, pady=18)
+        card_ext.pack(fill=tk.X)
+        self.tab_ext_label = tk.Label(card_ext, font=F["heading"],
+                                       fg=C["text"], bg=C["card"], anchor="w")
+        self.tab_ext_label.pack(fill=tk.X)
+        self.ext_entry = ttk.Entry(card_ext)
+        self.ext_entry.pack(fill=tk.X, pady=(8, 6))
+        self.ext_hint = tk.Label(card_ext, font=F["tiny"],
+                                  fg=C["text3"], bg=C["card"], anchor="w")
+        self.ext_hint.pack(fill=tk.X)
 
-        tab_path = ttk.Frame(self.notebook, padding=(8, 12))
-        self.notebook.add(tab_path, text="")
-        self.tab_path_label = ttk.Label(tab_path, style="Subtitle.TLabel")
-        self.tab_path_label.pack(anchor=tk.W)
-        path_row = ttk.Frame(tab_path)
-        path_row.pack(fill=tk.X, pady=(6, 4))
+        # Card: By Path
+        f_path = ttk.Frame(body)
+        self._content_frames.append(f_path)
+        card_path = tk.Frame(f_path, bg=C["card"], highlightbackground=C["border"],
+                             highlightthickness=1, padx=20, pady=18)
+        card_path.pack(fill=tk.X)
+        self.tab_path_label = tk.Label(card_path, font=F["heading"],
+                                        fg=C["text"], bg=C["card"], anchor="w")
+        self.tab_path_label.pack(fill=tk.X)
+        path_row = tk.Frame(card_path, bg=C["card"])
+        path_row.pack(fill=tk.X, pady=(8, 6))
         self.path_entry = ttk.Entry(path_row)
         self.path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.browse_btn = ttk.Button(path_row, command=self._browse, style="Secondary.TButton")
-        self.browse_btn.pack(side=tk.LEFT, padx=(8, 0))
-        self.path_hint = ttk.Label(tab_path, style="Hint.TLabel")
-        self.path_hint.pack(anchor=tk.W)
+        self.browse_btn = ttk.Button(path_row, command=self._browse,
+                                      style="Tool.TButton")
+        self.browse_btn.pack(side=tk.LEFT, padx=(10, 0))
+        self.path_hint = tk.Label(card_path, font=F["tiny"],
+                                   fg=C["text3"], bg=C["card"], anchor="w")
+        self.path_hint.pack(fill=tk.X)
 
-        tab_folder = ttk.Frame(self.notebook, padding=(8, 12))
-        self.notebook.add(tab_folder, text="")
-        self.tab_folder_label = ttk.Label(tab_folder, style="Subtitle.TLabel")
-        self.tab_folder_label.pack(anchor=tk.W)
-        self.folder_entry = ttk.Entry(tab_folder)
-        self.folder_entry.pack(fill=tk.X, pady=(6, 4))
-        self.folder_hint = ttk.Label(tab_folder, style="Hint.TLabel")
-        self.folder_hint.pack(anchor=tk.W)
+        # Card: By Folder
+        f_folder = ttk.Frame(body)
+        self._content_frames.append(f_folder)
+        card_folder = tk.Frame(f_folder, bg=C["card"],
+                               highlightbackground=C["border"],
+                               highlightthickness=1, padx=20, pady=18)
+        card_folder.pack(fill=tk.X)
+        self.tab_folder_label = tk.Label(card_folder, font=F["heading"],
+                                          fg=C["text"], bg=C["card"], anchor="w")
+        self.tab_folder_label.pack(fill=tk.X)
+        self.folder_entry = ttk.Entry(card_folder)
+        self.folder_entry.pack(fill=tk.X, pady=(8, 6))
+        self.folder_hint = tk.Label(card_folder, font=F["tiny"],
+                                     fg=C["text3"], bg=C["card"], anchor="w")
+        self.folder_hint.pack(fill=tk.X)
 
-        tab_date = ttk.Frame(self.notebook, padding=(8, 12))
-        self.notebook.add(tab_date, text="")
-        self.tab_date_label = ttk.Label(tab_date, style="Subtitle.TLabel")
-        self.tab_date_label.pack(anchor=tk.W)
-        date_row = ttk.Frame(tab_date)
-        date_row.pack(fill=tk.X, pady=(8, 4))
-        self.date_from_lbl = ttk.Label(date_row)
+        # Card: By Date
+        f_date = ttk.Frame(body)
+        self._content_frames.append(f_date)
+        card_date = tk.Frame(f_date, bg=C["card"], highlightbackground=C["border"],
+                             highlightthickness=1, padx=20, pady=18)
+        card_date.pack(fill=tk.X)
+        self.tab_date_label = tk.Label(card_date, font=F["heading"],
+                                        fg=C["text"], bg=C["card"], anchor="w")
+        self.tab_date_label.pack(fill=tk.X)
+
+        date_row1 = tk.Frame(card_date, bg=C["card"])
+        date_row1.pack(fill=tk.X, pady=(10, 6))
+        self.date_from_lbl = tk.Label(date_row1, font=F["body"],
+                                       fg=C["text2"], bg=C["card"], width=6, anchor="w")
         self.date_from_lbl.pack(side=tk.LEFT)
-        self.date_from_entry = ttk.Entry(date_row, width=18)
-        self.date_from_entry.pack(side=tk.LEFT, padx=(6, 16))
-        self.date_to_lbl = ttk.Label(date_row)
+        self.date_from_entry = ttk.Entry(date_row1, width=22)
+        self.date_from_entry.pack(side=tk.LEFT, padx=(6, 20))
+
+        self.date_to_lbl = tk.Label(date_row1, font=F["body"],
+                                     fg=C["text2"], bg=C["card"], width=4, anchor="w")
         self.date_to_lbl.pack(side=tk.LEFT)
-        self.date_to_entry = ttk.Entry(date_row, width=18)
+        self.date_to_entry = ttk.Entry(date_row1, width=22)
         self.date_to_entry.pack(side=tk.LEFT, padx=(6, 0))
-        self.date_hint = ttk.Label(tab_date, style="Hint.TLabel")
-        self.date_hint.pack(anchor=tk.W, pady=(6, 0))
 
-        tab_size = ttk.Frame(self.notebook, padding=(8, 12))
-        self.notebook.add(tab_size, text="")
-        self.tab_size_label = ttk.Label(tab_size, style="Subtitle.TLabel")
-        self.tab_size_label.pack(anchor=tk.W)
-        size_row = ttk.Frame(tab_size)
-        size_row.pack(fill=tk.X, pady=(6, 4))
-        self.size_from_lbl = ttk.Label(size_row)
+        self.date_hint = tk.Label(card_date, font=F["tiny"],
+                                   fg=C["text3"], bg=C["card"], anchor="w")
+        self.date_hint.pack(fill=tk.X, pady=(4, 0))
+
+        # Card: By Size
+        f_size = ttk.Frame(body)
+        self._content_frames.append(f_size)
+        card_size = tk.Frame(f_size, bg=C["card"], highlightbackground=C["border"],
+                             highlightthickness=1, padx=20, pady=18)
+        card_size.pack(fill=tk.X)
+        self.tab_size_label = tk.Label(card_size, font=F["heading"],
+                                        fg=C["text"], bg=C["card"], anchor="w")
+        self.tab_size_label.pack(fill=tk.X)
+        self.size_units = ["KB", "MB", "GB", "TB"]
+
+        size_row1 = tk.Frame(card_size, bg=C["card"])
+        size_row1.pack(fill=tk.X, pady=(10, 6))
+        self.size_from_lbl = tk.Label(size_row1, font=F["body"],
+                                       fg=C["text2"], bg=C["card"], width=6, anchor="w")
         self.size_from_lbl.pack(side=tk.LEFT)
-        self.size_from_entry = ttk.Entry(size_row, width=16)
-        self.size_from_entry.pack(side=tk.LEFT, padx=(6, 16))
-        self.size_to_lbl = ttk.Label(size_row)
+        self.size_from_entry = ttk.Entry(size_row1, width=10)
+        self.size_from_entry.pack(side=tk.LEFT, padx=(6, 6))
+        self.size_from_unit = ttk.Combobox(size_row1, values=self.size_units,
+                                            width=6, state="readonly")
+        self.size_from_unit.set("MB")
+        self.size_from_unit.pack(side=tk.LEFT)
+
+        size_row2 = tk.Frame(card_size, bg=C["card"])
+        size_row2.pack(fill=tk.X, pady=(0, 6))
+        self.size_to_lbl = tk.Label(size_row2, font=F["body"],
+                                     fg=C["text2"], bg=C["card"], width=6, anchor="w")
         self.size_to_lbl.pack(side=tk.LEFT)
-        self.size_to_entry = ttk.Entry(size_row, width=16)
-        self.size_to_entry.pack(side=tk.LEFT, padx=(6, 0))
-        self.size_hint = ttk.Label(tab_size, style="Hint.TLabel")
-        self.size_hint.pack(anchor=tk.W, pady=(6, 0))
+        self.size_to_entry = ttk.Entry(size_row2, width=10)
+        self.size_to_entry.pack(side=tk.LEFT, padx=(6, 6))
+        self.size_to_unit = ttk.Combobox(size_row2, values=self.size_units,
+                                          width=6, state="readonly")
+        self.size_to_unit.set("MB")
+        self.size_to_unit.pack(side=tk.LEFT)
 
-        self.run_btn = ttk.Button(body, style="Accent.TButton", command=self._run)
-        self.run_btn.pack(fill=tk.X, pady=(0, 12))
+        self.size_hint = tk.Label(card_size, font=F["tiny"],
+                                   fg=C["text3"], bg=C["card"], anchor="w")
+        self.size_hint.pack(fill=tk.X, pady=(4, 0))
 
-        log_container = tk.Frame(body, bg=self.BORDER, padx=1, pady=1)
-        log_container.pack(fill=tk.BOTH, expand=True)
+        # Show first mode
+        self._content_frames[0].pack(fill=tk.X, pady=0)
 
-        log_header = tk.Frame(log_container, bg=self.CARD_BG, padx=12, pady=10)
+        # ── Action Button ──────────────────────────────────────────────────
+        self.run_btn = ttk.Button(body, style="Accent.TButton",
+                                   command=self._run)
+        self.run_btn.pack(fill=tk.X, pady=(16, 16))
+
+        # ── Log Panel ──────────────────────────────────────────────────────
+        log_card = tk.Frame(body, bg=C["log_bg"],
+                            highlightbackground=C["border"],
+                            highlightthickness=1)
+        log_card.pack(fill=tk.BOTH, expand=True)
+
+        log_header = tk.Frame(log_card, bg="#161b22", padx=16, pady=10)
         log_header.pack(fill=tk.X)
-        self.log_frame_label = ttk.Label(log_header, style="Card.TLabelframe.Label",
-                                          background=self.CARD_BG)
+        self.log_frame_label = tk.Label(log_header, font=F["small_b"],
+                                         fg=C["text3"], bg="#161b22")
         self.log_frame_label.pack(side=tk.LEFT)
-        self.log_frame = log_header
 
-        self.log_text = tk.Text(log_container, height=10, state=tk.DISABLED, font=("Cascadia Code", 9),
-                                wrap=tk.WORD, bg=self.LOG_BG, fg=self.LOG_FG,
-                                selectbackground=self.LOG_SELECT, relief=tk.FLAT,
-                                borderwidth=0, padx=12, pady=8,
-                                insertbackground=self.ACCENT, highlightthickness=0)
-        scrollbar = tk.Scrollbar(log_container, command=self.log_text.yview, bg=self.LOG_BG,
-                                  troughcolor=self.LOG_BG, activebackground=self.TEXT_SECONDARY,
+        log_body = tk.Frame(log_card, bg=C["log_bg"])
+        log_body.pack(fill=tk.BOTH, expand=True)
+
+        self.log_text = tk.Text(
+            log_body, height=10, state=tk.DISABLED,
+            font=F["mono"], wrap=tk.WORD,
+            bg=C["log_bg"], fg=C["log_fg"],
+            selectbackground="#264f78", relief=tk.FLAT,
+            borderwidth=0, padx=16, pady=12,
+            insertbackground=C["accent"], highlightthickness=0,
+            spacing1=1, spacing3=1
+        )
+        scrollbar = tk.Scrollbar(log_body, command=self.log_text.yview,
+                                  bg=C["log_bg"], troughcolor=C["log_bg"],
+                                  activebackground=C["log_dim"],
                                   width=8, borderwidth=0, relief=tk.FLAT)
         self.log_text.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
-        footer = tk.Frame(body, bg=self.BG, pady=8)
+        # ── Footer ─────────────────────────────────────────────────────────
+        footer = tk.Frame(body, bg=C["bg"], pady=10)
         footer.pack(fill=tk.X)
-        self.log_path_label = ttk.Label(footer, style="Status.TLabel")
+        self.log_path_label = tk.Label(footer, font=F["tiny"],
+                                        fg=C["text3"], bg=C["bg"])
         self.log_path_label.pack(side=tk.LEFT, anchor=tk.CENTER)
-        self.open_log_btn = ttk.Button(footer, command=self._open_log_dir, style="Small.TButton")
-        self.open_log_btn.pack(side=tk.RIGHT, padx=(4, 0))
-        self.export_btn = ttk.Button(footer, command=self._export_csv, style="Small.TButton")
-        self.export_btn.pack(side=tk.RIGHT)
+        self.export_btn = ttk.Button(footer, command=self._export_csv,
+                                      style="Small.TButton")
+        self.export_btn.pack(side=tk.RIGHT, padx=(4, 0))
+        self.open_log_btn = ttk.Button(footer, command=self._open_log_dir,
+                                        style="Small.TButton")
+        self.open_log_btn.pack(side=tk.RIGHT)
 
+        # ── Status Bar ─────────────────────────────────────────────────────
         self.status_var = tk.StringVar(value="")
-        status_bar = tk.Frame(main, bg=self.CARD_BG, padx=24, pady=8)
+        status_bar = tk.Frame(main, bg=C["card"], padx=24, pady=10,
+                               highlightbackground=C["border"],
+                               highlightthickness=(1, 0, 0, 0))
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
-        self.status_label = ttk.Label(status_bar, textvariable=self.status_var, style="Status.TLabel",
-                                       background=self.CARD_BG)
+        self.status_dot = tk.Frame(status_bar, bg=C["success"],
+                                    width=8, height=8)
+        self.status_dot.pack(side=tk.LEFT, padx=(0, 8), anchor=tk.CENTER)
+        self.status_label = tk.Label(status_bar, textvariable=self.status_var,
+                                      font=F["small"], fg=C["text2"], bg=C["card"])
         self.status_label.pack(side=tk.LEFT, anchor=tk.CENTER)
+
+    # ── Rebuild Texts ──────────────────────────────────────────────────────
 
     def _rebuild_texts(self):
         s = STRINGS[self.lang]
         self.root.title(f"{s['app_title']} v{APP_VERSION}")
         self.title_label.config(text=s["app_title"])
         self.lang_btn.config(text=s["lang_switch"])
-        self.notebook.tab(0, text=f"  {s['by_ext'].strip()}  ")
-        self.notebook.tab(1, text=f"  {s['by_path'].strip()}  ")
-        self.notebook.tab(2, text=f"  {s['by_folder'].strip()}  ")
-        self.notebook.tab(3, text=f"  {s['by_date'].strip()}  ")
-        self.notebook.tab(4, text=f"  {s['by_size'].strip()}  ")
+
+        for idx in range(5):
+            _, label, _ = self._seg_widgets[idx]
+            label.config(text=s[self.MODE_KEYS[idx]].strip())
+
         self.tab_ext_label.config(text=s["ext_label"])
         self.ext_hint.config(text=s["ext_hint"])
         self.tab_path_label.config(text=s["path_label"])
@@ -473,6 +659,8 @@ class RecycleCleaner:
             self.path_entry.delete(0, tk.END)
             self.path_entry.insert(0, d)
 
+    # ── Log ────────────────────────────────────────────────────────────────
+
     def _log(self, msg):
         logging.info(msg)
         self.log_text.config(state=tk.NORMAL)
@@ -486,32 +674,34 @@ class RecycleCleaner:
         self.log_text.delete("1.0", tk.END)
         self.log_text.config(state=tk.DISABLED)
 
+    # ── Guide Dialog ───────────────────────────────────────────────────────
+
     def _show_guide(self):
         s = STRINGS[self.lang]
         dlg = tk.Toplevel(self.root)
         dlg.title(s["guide_title"])
-        dlg.geometry("480x400")
+        dlg.geometry("500x420")
         dlg.resizable(False, False)
         dlg.transient(self.root)
         dlg.grab_set()
-        dlg.configure(bg=self.BG)
-        self._center_child(dlg, 480, 400)
+        dlg.configure(bg=C["bg"])
+        self._center_child(dlg, 500, 420)
 
-        card = tk.Frame(dlg, bg=self.CARD_BG, padx=20, pady=20)
+        card = tk.Frame(dlg, bg=C["card"], padx=24, pady=24)
         card.pack(fill=tk.BOTH, expand=True, padx=16, pady=(16, 0))
 
-        text = tk.Text(card, wrap=tk.WORD, font=("Microsoft YaHei UI", 10), padx=4, pady=4,
-                        relief=tk.FLAT, bg=self.CARD_BG, fg=self.TEXT_PRIMARY, highlightthickness=0,
-                        spacing1=2, spacing3=2)
+        text = tk.Text(card, wrap=tk.WORD, font=F["body"], padx=4, pady=4,
+                        relief=tk.FLAT, bg=C["card"], fg=C["text"],
+                        highlightthickness=0, spacing1=2, spacing3=2)
         text.insert(tk.END, s["guide_text"])
         text.config(state=tk.DISABLED)
         text.pack(fill=tk.BOTH, expand=True)
 
-        btn_area = tk.Frame(dlg, bg=self.BG, padx=16, pady=12)
+        btn_area = tk.Frame(dlg, bg=C["bg"], padx=16, pady=16)
         btn_area.pack(fill=tk.X)
 
         var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(btn_area, text=s["guide_confirm"], variable=var).pack(anchor=tk.W, pady=(0, 8))
+        ttk.Checkbutton(btn_area, text=s["guide_confirm"], variable=var).pack(anchor=tk.W, pady=(0, 10))
         ttk.Button(btn_area, text=s["guide_ok"], command=lambda: self._close_guide(dlg, var),
                     style="Accent.TButton").pack(fill=tk.X)
 
@@ -530,6 +720,8 @@ class RecycleCleaner:
         y = py + (ph - h) // 2
         win.geometry(f"{w}x{h}+{x}+{y}")
 
+    # ── Update Check ───────────────────────────────────────────────────────
+
     def _async_update_check(self):
         threading.Thread(target=_check_update_async, args=(self.lang, self._on_update_found), daemon=True).start()
 
@@ -541,39 +733,45 @@ class RecycleCleaner:
         if messagebox.askyesno(s["update_title"], s["update_msg"].format(cur=APP_VERSION, new=new_ver)):
             webbrowser.open(f"https://github.com/user/recycle-cleaner/releases/tag/v{new_ver}")
 
+    # ── Error Dialog ───────────────────────────────────────────────────────
+
     def _show_error(self, exc: Exception):
         s = STRINGS[self.lang]
         err_text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         logging.error(err_text)
         dlg = tk.Toplevel(self.root)
         dlg.title(s["err_title"])
-        dlg.geometry("520x320")
+        dlg.geometry("540x340")
         dlg.transient(self.root)
         dlg.grab_set()
-        dlg.configure(bg=self.BG)
-        self._center_child(dlg, 520, 320)
+        dlg.configure(bg=C["bg"])
+        self._center_child(dlg, 540, 340)
 
-        header = tk.Frame(dlg, bg=self.CARD_BG, padx=20, pady=16)
+        header = tk.Frame(dlg, bg=C["card"], padx=20, pady=16)
         header.pack(fill=tk.X, padx=16, pady=(16, 0))
-        ttk.Label(header, text=s["err_msg"].format(err=str(exc)[:200]), wraplength=470, justify=tk.LEFT,
-                   background=self.CARD_BG, foreground=self.DANGER, font=("Microsoft YaHei UI", 9)).pack(anchor=tk.W)
+        tk.Label(header, text=s["err_msg"].format(err=str(exc)[:200]),
+                 wraplength=480, justify=tk.LEFT, font=F["body"],
+                 bg=C["card"], fg=C["danger"]).pack(anchor=tk.W)
 
-        t = tk.Text(dlg, wrap=tk.WORD, font=("Cascadia Code", 8), height=8, bg=self.LOG_BG, fg=self.LOG_FG,
-                     relief=tk.FLAT, borderwidth=0, padx=12, pady=8, highlightthickness=0)
+        t = tk.Text(dlg, wrap=tk.WORD, font=F["mono"], height=8,
+                     bg=C["log_bg"], fg=C["log_fg"], relief=tk.FLAT,
+                     borderwidth=0, padx=16, pady=12, highlightthickness=0)
         t.insert(tk.END, err_text)
         t.config(state=tk.DISABLED)
         t.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 8))
 
-        btn_row = tk.Frame(dlg, bg=self.BG, padx=16, pady=16)
+        btn_row = tk.Frame(dlg, bg=C["bg"], padx=16, pady=16)
         btn_row.pack(fill=tk.X)
         ttk.Button(btn_row, text=s["err_copy"], command=lambda: self._copy_text(err_text),
-                    style="Secondary.TButton").pack(side=tk.LEFT)
+                    style="Tool.TButton").pack(side=tk.LEFT)
         ttk.Button(btn_row, text=s["close"], command=dlg.destroy,
                     style="Accent.TButton").pack(side=tk.RIGHT)
 
     def _copy_text(self, text):
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
+
+    # ── Scan Recycle Bin ───────────────────────────────────────────────────
 
     def _scan_recycle_bin(self):
         s = STRINGS[self.lang]
@@ -656,6 +854,8 @@ foreach ($item in $items) {
             logging.error("Scan exception", exc_info=True)
             return False
 
+    # ── Parsers ────────────────────────────────────────────────────────────
+
     def _parse_extensions(self, raw):
         separators = [',', ' ', '\uff0c', ';', '\uff1b', '\n']
         tokens = [raw]
@@ -685,6 +885,8 @@ foreach ($item in $items) {
                 continue
         return 'invalid'
 
+    # ── Run ────────────────────────────────────────────────────────────────
+
     def _run(self):
         try:
             self._do_run()
@@ -695,13 +897,15 @@ foreach ($item in $items) {
         s = STRINGS[self.lang]
         self._clear_log()
         self.status_var.set(s["scanning"])
+        self.status_dot.configure(bg=C["warning"])
         self.root.update_idletasks()
 
         if not self._scan_recycle_bin():
             self.status_var.set(s["scan_failed"])
+            self.status_dot.configure(bg=C["danger"])
             return
 
-        tab_idx = self.notebook.index("current")
+        tab_idx = self._active_mode
         if tab_idx == 0:
             self._clean_by_ext()
         elif tab_idx == 1:
@@ -712,6 +916,8 @@ foreach ($item in $items) {
             self._clean_by_date()
         else:
             self._clean_by_size()
+
+    # ── Preview & Delete ───────────────────────────────────────────────────
 
     def _show_preview(self, targets) -> bool:
         s = STRINGS[self.lang]
@@ -732,14 +938,17 @@ foreach ($item in $items) {
         if not targets:
             self._log(s["no_match"])
             self.status_var.set(s["ready"])
+            self.status_dot.configure(bg=C["success"])
             return
 
         if not self._show_preview(targets):
             self._log(s["user_cancel"])
             self.status_var.set(s["cancelled"])
+            self.status_dot.configure(bg=C["text3"])
             return
 
         self.status_var.set(s["cleaning"])
+        self.status_dot.configure(bg=C["accent"])
         self.root.update_idletasks()
 
         try:
@@ -795,6 +1004,9 @@ foreach ($item in $items) {
             self._log(s["failed"] + str(failed) + s["failed_reason"])
         self._log("=" * 50)
         self.status_var.set(s["done_status"].format(n=deleted, sz=format_size(freed)))
+        self.status_dot.configure(bg=C["success"])
+
+    # ── Clean Modes ────────────────────────────────────────────────────────
 
     def _clean_by_ext(self):
         s = STRINGS[self.lang]
@@ -903,51 +1115,47 @@ foreach ($item in $items) {
             self._log(s["skipped_no_date"].format(n=skipped))
         self._do_delete(targets)
 
-    @staticmethod
-    def _parse_size(raw: str) -> int | None:
-        raw = raw.strip().upper()
-        units = {"KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
-        for suffix, mul in units.items():
-            if raw.endswith(suffix):
-                num = raw[:-len(suffix)].strip()
-                try:
-                    return int(float(num) * mul)
-                except ValueError:
-                    return None
-        try:
-            return int(float(raw))
-        except ValueError:
-            return None
-
     def _clean_by_size(self):
         s = STRINGS[self.lang]
         raw_from = self.size_from_entry.get().strip()
         raw_to = self.size_to_entry.get().strip()
 
-        size_from = self._parse_size(raw_from) if raw_from else None
-        if raw_from and (size_from is None or size_from <= 0):
-            messagebox.showwarning(s["selfcheck_title"], s["prompt_size_fmt"])
-            self.status_var.set(s["ready"])
-            return
-
-        size_to = self._parse_size(raw_to) if raw_to else None
-        if raw_to and (size_to is None or size_to <= 0):
-            messagebox.showwarning(s["selfcheck_title"], s["prompt_size_fmt"])
-            self.status_var.set(s["ready"])
-            return
-
-        if size_from is None and size_to is None:
+        if not raw_from and not raw_to:
             messagebox.showwarning(s["selfcheck_title"], s["prompt_size"])
             self.status_var.set(s["ready"])
             return
 
+        size_from = None
+        if raw_from:
+            try:
+                num = float(raw_from)
+                size_from = int(num * {"KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}[self.size_from_unit.get()])
+                if size_from <= 0:
+                    raise ValueError
+            except (ValueError, KeyError):
+                messagebox.showwarning(s["selfcheck_title"], s["prompt_size_fmt"])
+                self.status_var.set(s["ready"])
+                return
+
+        size_to = None
+        if raw_to:
+            try:
+                num = float(raw_to)
+                size_to = int(num * {"KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}[self.size_to_unit.get()])
+                if size_to <= 0:
+                    raise ValueError
+            except (ValueError, KeyError):
+                messagebox.showwarning(s["selfcheck_title"], s["prompt_size_fmt"])
+                self.status_var.set(s["ready"])
+                return
+
         self._log(s["mode_size"])
-        if size_from and size_to:
-            self._log(s["target_size"] + f"{raw_from.upper()} ~ {raw_to.upper()}")
-        elif size_from:
-            self._log(s["target_size"] + f">= {raw_from.upper()}")
+        if size_from is not None and size_to is not None:
+            self._log(s["target_size"] + f"{raw_from}{self.size_from_unit.get()} ~ {raw_to}{self.size_to_unit.get()}")
+        elif size_from is not None:
+            self._log(s["target_size"] + f">= {raw_from}{self.size_from_unit.get()}")
         else:
-            self._log(s["target_size"] + f"<= {raw_to.upper()}")
+            self._log(s["target_size"] + f"<= {raw_to}{self.size_to_unit.get()}")
 
         targets = []
         for r_path, orig_path, size, delete_time, name in self.scanned_items:
@@ -957,6 +1165,8 @@ foreach ($item in $items) {
                 continue
             targets.append((r_path, orig_path, size, delete_time, name))
         self._do_delete(targets)
+
+    # ── Utilities ──────────────────────────────────────────────────────────
 
     def _open_log_dir(self):
         if LOG_DIR.exists():
@@ -1000,11 +1210,15 @@ foreach ($item in $items) {
         except Exception as e:
             self._show_error(e)
 
+    # ── Main Loop ──────────────────────────────────────────────────────────
+
     def run(self):
         if not _run_self_check_ui(self.lang):
             return
         self.root.mainloop()
 
+
+# ── Uninstall Cleanup ──────────────────────────────────────────────────────────
 
 def _run_uninstall_cleanup() -> None:
     import shutil
