@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import ctypes
+if hasattr(ctypes, 'windll'):
+    _hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+    if _hwnd:
+        ctypes.windll.user32.ShowWindow(_hwnd, 0)
+
 import re
 import csv
 import json
@@ -911,22 +917,6 @@ foreach ($item in $items) {
         if skipped > 0:
             self._log(s["skipped_no_date"].format(n=skipped))
         self._do_delete(targets)
-
-    @staticmethod
-    def _parse_size(raw: str) -> int | None:
-        raw = raw.strip().upper()
-        units = {"KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
-        for suffix, mul in units.items():
-            if raw.endswith(suffix):
-                num = raw[:-len(suffix)].strip()
-                try:
-                    return int(float(num) * mul)
-                except ValueError:
-                    return None
-        try:
-            return int(float(raw))
-        except ValueError:
-            return None
 
     def _clean_by_size(self):
         s = STRINGS[self.lang]
