@@ -245,6 +245,9 @@ class RecycleCleaner:
         self.scanned_items: list[tuple] = []
         self._last_targets: list[tuple] = []
         self._active_mode = 0
+        self._busy = False
+        self._log_queue: list[str] = []
+        self._log_flush_scheduled = False
         self._seg_widgets: list[tuple[tk.Frame, tk.Label, tk.Frame]] = []
         self._content_frames: list[ttk.Frame] = []
 
@@ -604,7 +607,7 @@ class RecycleCleaner:
         self.status_var = tk.StringVar(value="")
         status_bar = tk.Frame(main, bg=C["card"], padx=24, pady=10,
                                highlightbackground=C["border"],
-                               highlightthickness=(1, 0, 0, 0))
+                               highlightthickness=1)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
         self.status_dot = tk.Frame(status_bar, bg=C["success"],
                                     width=8, height=8)
@@ -663,11 +666,39 @@ class RecycleCleaner:
 
     def _log(self, msg):
         logging.info(msg)
-        self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, msg + "\n")
-        self.log_text.see(tk.END)
-        self.log_text.config(state=tk.DISABLED)
-        self.root.update_idletasks()
+        if threading.current_thread() is threading.main_thread():
+            self._log_gui(msg)
+            return
+        self._log_queue.append(msg)
+        if self._log_flush_scheduled:
+            return
+        self._log_flush_scheduled = True
+        try:
+            self.root.after(150, self._flush_log_queue)
+        except tk.TclError:
+            self._log_flush_scheduled = False
+
+    def _log_gui(self, msg):
+        try:
+            self.log_text.config(state=tk.NORMAL)
+            self.log_text.insert(tk.END, msg + "\n")
+            self.log_text.see(tk.END)
+            self.log_text.config(state=tk.DISABLED)
+        except tk.TclError:
+            pass
+
+    def _flush_log_queue(self):
+        self._log_flush_scheduled = False
+        batch = self._log_queue
+        self._log_queue = []
+        try:
+            self.log_text.config(state=tk.NORMAL)
+            for msg in batch:
+                self.log_text.insert(tk.END, msg + "\n")
+            self.log_text.see(tk.END)
+            self.log_text.config(state=tk.DISABLED)
+        except tk.TclError:
+            pass
 
     def _clear_log(self):
         self.log_text.config(state=tk.NORMAL)
@@ -776,7 +807,6 @@ class RecycleCleaner:
     def _scan_recycle_bin(self):
         s = STRINGS[self.lang]
         self._log(s["scanning"].rstrip("."))
-        self.root.update_idletasks()
         try:
             ps_script = '''$Encoding = [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $shell = New-Object -ComObject Shell.Application
@@ -804,7 +834,7 @@ foreach ($item in $items) {
 
             result = subprocess.run(
                 ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps_file],
-                capture_output=True, timeout=60,
+                capture_output=True, timeout=300,
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             if result.returncode != 0:
@@ -894,17 +924,29 @@ foreach ($item in $items) {
             self._show_error(e)
 
     def _do_run(self):
+        if self._busy:
+            return
+        self._busy = True
         s = STRINGS[self.lang]
         self._clear_log()
         self.status_var.set(s["scanning"])
         self.status_dot.configure(bg=C["warning"])
-        self.root.update_idletasks()
+        threading.Thread(target=self._scan_thread, daemon=True).start()
 
-        if not self._scan_recycle_bin():
-            self.status_var.set(s["scan_failed"])
-            self.status_dot.configure(bg=C["danger"])
-            return
+    def _scan_thread(self):
+        ok = self._scan_recycle_bin()
+        if ok:
+            self.root.after(0, self._continue_clean)
+        else:
+            self.root.after(0, self._on_scan_failed)
 
+    def _on_scan_failed(self):
+        s = STRINGS[self.lang]
+        self._busy = False
+        self.status_var.set(s["scan_failed"])
+        self.status_dot.configure(bg=C["danger"])
+
+    def _continue_clean(self):
         tab_idx = self._active_mode
         if tab_idx == 0:
             self._clean_by_ext()
@@ -939,18 +981,22 @@ foreach ($item in $items) {
             self._log(s["no_match"])
             self.status_var.set(s["ready"])
             self.status_dot.configure(bg=C["success"])
+            self._busy = False
             return
 
         if not self._show_preview(targets):
             self._log(s["user_cancel"])
             self.status_var.set(s["cancelled"])
             self.status_dot.configure(bg=C["text3"])
+            self._busy = False
             return
 
         self.status_var.set(s["cleaning"])
         self.status_dot.configure(bg=C["accent"])
-        self.root.update_idletasks()
+        threading.Thread(target=self._delete_thread, args=(targets,), daemon=True).start()
 
+    def _delete_thread(self, targets):
+        s = STRINGS[self.lang]
         try:
             ps_lines = ['$ErrorActionPreference = "SilentlyContinue"']
             for r_path, orig_path, size, _, name in targets:
@@ -976,7 +1022,7 @@ foreach ($item in $items) {
         except Exception as e:
             self._log(s["scan_exception"] + str(e))
             logging.error("Delete exception", exc_info=True)
-            self._show_error(e)
+            self.root.after(0, self._on_delete_failed, str(e))
             return
 
         deleted, failed, freed = 0, 0, 0
@@ -995,6 +1041,17 @@ foreach ($item in $items) {
             display = orig_path if orig_path else name
             self._log(s["delete_item"] + f"{display} ({format_size(size)})")
 
+        self.root.after(0, self._finish_delete, deleted, failed, freed)
+
+    def _on_delete_failed(self, err=""):
+        s = STRINGS[self.lang]
+        self._busy = False
+        self.status_var.set(s["scan_failed"])
+        self.status_dot.configure(bg=C["danger"])
+        messagebox.showerror(s["err_title"], s["del_fail_msg"].format(err=err))
+
+    def _finish_delete(self, deleted, failed, freed):
+        s = STRINGS[self.lang]
         self._log("")
         self._log("=" * 50)
         self._log(s["clean_done"])
@@ -1005,6 +1062,11 @@ foreach ($item in $items) {
         self._log("=" * 50)
         self.status_var.set(s["done_status"].format(n=deleted, sz=format_size(freed)))
         self.status_dot.configure(bg=C["success"])
+        self._busy = False
+        messagebox.showinfo(
+            s["done_title"],
+            s["done_msg"].format(deleted=deleted, freed=format_size(freed), failed=failed),
+        )
 
     # ── Clean Modes ────────────────────────────────────────────────────────
 

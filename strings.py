@@ -72,9 +72,12 @@ STRINGS = {
         "scan_err_empty": "[错误] 回收站扫描结果为空",
         "scan_done": "扫描完成，共 {n} 个项目",
         "scan_skip": "[提示] {n} 个条目格式异常已跳过",
-        "scan_timeout": "[错误] 扫描超时（超过60秒）",
+        "scan_timeout": "[错误] 扫描超时（超过5分钟）",
         "scan_exception": "[错误] 扫描异常: ",
         "done_status": "完成 — 删除 {n} 个，释放 {sz}",
+        "done_title": "清理完成",
+        "done_msg": "删除完成！\n\n已删除: {deleted} 个\n释放空间: {freed}\n失败: {failed} 个",
+        "del_fail_msg": "删除过程中发生错误：\n\n{err}\n\n详细信息已记录到日志文件。",
         "guide_title": "使用说明",
         "guide_text": (
             "欢迎使用回收站清理工具！\n\n"
@@ -187,9 +190,12 @@ STRINGS = {
         "scan_err_empty": "[Error] Recycle bin scan result is empty",
         "scan_done": "Scan complete, {n} items found",
         "scan_skip": "[Info] {n} malformed entries skipped",
-        "scan_timeout": "[Error] Scan timed out (60s)",
+        "scan_timeout": "[Error] Scan timed out (5 min)",
         "scan_exception": "[Error] Scan exception: ",
         "done_status": "Done - Deleted {n}, freed {sz}",
+        "done_title": "Cleaning Complete",
+        "done_msg": "Cleaning done!\n\nDeleted: {deleted}\nFreed: {freed}\nFailed: {failed}",
+        "del_fail_msg": "An error occurred during deletion:\n\n{err}\n\nDetails have been logged.",
         "guide_title": "Usage Guide",
         "guide_text": (
             "Welcome to Recycle Bin Cleaner!\n\n"
